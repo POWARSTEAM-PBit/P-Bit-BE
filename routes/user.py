@@ -53,23 +53,27 @@ async def register(payload: user_register, db:Session = Depends(get_db)):
     model_info = user_model_id_map.get(payload.user_type)
 
     if not model_info:
-        return JSONResponse(content={'msg': "Invalid user type"}, status_code=status. HTTP_422_UNPROCESSABLE_ENTITY)
+        content = api_resp(success=False, message="Invalid user type", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
+        return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
     
     model_class, identifier_field = model_info
 
     existing_user = db.query(model_class).filter(identifier_field == payload.user_id).first()
     
     if existing_user:
-        return JSONResponse(content={'msg': f"User already exists"}, status_code=status.HTTP_409_CONFLICT)
+        content = api_resp(success=False, message="User already exists", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
+        return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     if payload.user_type == user_type.TEACHER:
         if not payload.user_id:
-            return JSONResponse(content={'msg': "Email is required for teacher registration"}, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+            content = api_resp(success=False, message="Email is required for teacher registration", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
+            return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)  
         try:
             valid = validate_email(payload.user_id.strip())
             identifier = valid.email.lower()
         except EmailNotValidError as e:
-            return JSONResponse(content={'msg': f"Invalid email address: {str(e)}"}, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+            content = api_resp(success=False, message="Invalid email address", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
+            return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY) 
 
         new_user = model_class(
             email=identifier,
@@ -80,7 +84,8 @@ async def register(payload: user_register, db:Session = Depends(get_db)):
 
     elif payload.user_type == user_type.STUDENT:
         if not payload.user_id:
-            return JSONResponse(content={'msg': "Username is required for student registration"}, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+            content = api_resp(success=False, message="Username is required for student registration", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
+            return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY) 
             
         identifier = payload.user_id.strip()
         new_user = model_class(
@@ -90,7 +95,8 @@ async def register(payload: user_register, db:Session = Depends(get_db)):
             password=hash_password(payload.password)
         )
     else:
-        return JSONResponse(content={'msg': "Unsupported user type"}, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        content = api_resp(success=False, message="Unsupported user type", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
+        return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
 
     try:
         db.add(new_user)
@@ -98,10 +104,12 @@ async def register(payload: user_register, db:Session = Depends(get_db)):
         db.refresh(new_user)
     except Exception as e:
         db.rollback()
-        return JSONResponse(content={'msg': f"Failed to register {str(e)}"}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        content = api_resp(success=False, message="Failed to register", error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)).dict()
+        return JSONResponse(content=content, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    return {'msg': "User registered successfully","user_type": payload.user_type.value, "id":identifier}
 
+    content = api_resp(success=True, message="Register successful", data=None).dict()
+    return JSONResponse(content=content, status_code=status.HTTP_201_CREATED)
 
 @router.post(
     "/login", 
