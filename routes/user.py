@@ -11,12 +11,8 @@ from email_validator import validate_email, EmailNotValidError
 import uuid
 import bcrypt
 from utils import api_resp, error_resp
+from utils import REGISTER_SUCCESS_RESPONSE, INVALID_EMAIL_REGISTER_RESPONSE, INVALID_USER_TYPE_REGISTER_RESPONSE, VALIDATION_ERROR_REGISTER_RESPONSES, INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
 from utils import LOGIN_SUCCESS_RESPONSE, INVALID_EMAIL_RESPONSE, UNAUTHORIZED_RESPONSES, USER_NOT_FOUND_RESPONSE
-
-
-router = APIRouter()
-router: APIRouter = APIRouter(prefix="/user")
-db_models.Base.metadata.create_all(bind=engine)
 
 class user_type(str, Enum):
     TEACHER = "teacher"
@@ -39,6 +35,11 @@ user_model_id_map = {
     user_type.STUDENT: (db_models.student, db_models.student.user_name),
 }
 
+router = APIRouter()
+router: APIRouter = APIRouter(prefix="/user")
+db_models.Base.metadata.create_all(bind=engine)
+
+
 def hash_password(plain_password: str): # Function to hash the password
     salt: bytes = bcrypt.gensalt()
     return bcrypt.hashpw(plain_password.encode('utf-8'), salt).decode('utf-8')
@@ -47,7 +48,18 @@ def verify_password(plain_password: str, hashed_password: str): # Function to ve
     return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 
-@router.post("/register", tags=["user"], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    tags=["user"],
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        201: REGISTER_SUCCESS_RESPONSE,
+        400: INVALID_EMAIL_REGISTER_RESPONSE,
+        401: INVALID_USER_TYPE_REGISTER_RESPONSE,
+        422: VALIDATION_ERROR_REGISTER_RESPONSES,
+        500: INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
+    }
+)
 async def register(payload: user_register, db:Session = Depends(get_db)):
     
     model_info = user_model_id_map.get(payload.user_type)
