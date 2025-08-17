@@ -82,3 +82,96 @@ USER_NOT_FOUND_RESPONSE = {
         }
     }
 }
+
+REGISTER_SUCCESS_RESPONSE = {
+    "description": "User registered successfully",
+    "content": {
+        "application/json": {
+            "example": {
+                "success": True,
+                "message": "Register successful",
+                "data": None,
+                "error": None
+            }
+        }
+    }
+}
+
+INVALID_EMAIL_REGISTER_RESPONSE = {
+    "description": "Invalid email format (for teacher)",
+    "content": {
+        "application/json": {
+            "example": {
+                "success": False,
+                "message": "Invalid email address",
+                "data": None,
+                "error": {"code": 422, "details": None}
+            }
+        }
+    }
+}
+
+INVALID_USER_TYPE_REGISTER_RESPONSE = {
+    "description": "Invalid user type",
+    "content": {
+        "application/json": {
+            "example": {
+                "success": False,
+                "message": "Invalid user type",
+                "data": None,
+                "error": {"code": 401, "details": None}
+            }
+        }
+    }
+}
+
+VALIDATION_ERROR_REGISTER_RESPONSES = {
+    "description": "Validation or business logic error",
+    "content": {
+        "application/json": {
+            "examples": {
+                "user_exists": {
+                    "summary": "User already exists",
+                    "value": {
+                        "success": False,
+                        "message": "User already exists",
+                        "data": None,
+                        "error": {"code": 422, "details": None}
+                    }
+                },
+                "missing_email": {
+                    "summary": "Missing email for teacher",
+                    "value": {
+                        "success": False,
+                        "message": "Email is required for teacher registration",
+                        "data": None,
+                        "error": {"code": 422, "details": None}
+                    }
+                },
+                "missing_username": {
+                    "summary": "Missing username for student",
+                    "value": {
+                        "success": False,
+                        "message": "Username is required for student registration",
+                        "data": None,
+                        "error": {"code": 422, "details": None}
+                    }
+                }
+            }
+        }
+    }
+}
+
+INTERNAL_SERVER_ERROR_REGISTER_RESPONSE = {
+    "description": "Internal server error during registration",
+    "content": {
+        "application/json": {
+            "example": {
+                "success": False,
+                "message": "Failed to register",
+                "data": None,
+                "error": {"code": 500, "details": None}
+            }
+        }
+    }
+}
