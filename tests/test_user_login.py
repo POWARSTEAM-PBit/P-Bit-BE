@@ -45,7 +45,7 @@ def test_teacher_login_invalid_email(client):
     }
     response = client.post("/user/login", json=login_data)
     assert response.status_code == 400
-    assert "Invalid email address" in response.json()["msg"]
+    assert "Invalid email address" in response.json()["message"]
 
 def test_student_login_success(client, test_student):
     """
@@ -71,7 +71,7 @@ def test_student_login_wrong_password(client, test_student):
     }
     response = client.post("/user/login", json=login_data)
     assert response.status_code == 401
-    assert response.json()["msg"] == "User does not exist"
+    assert response.json()["message"] == "User does not exist"
 
 def test_login_invalid_user_type(client):
     """
