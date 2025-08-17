@@ -26,7 +26,7 @@ class user_login(BaseModel):
 class user_register(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
-    password: str = Field(..., min_length=8, max_length=128)
+    password: str = Field(..., min_length=1, max_length=128)
     user_id: str
     user_type: user_type # identify the user
 
