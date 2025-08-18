@@ -1,114 +1,75 @@
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from db.init_engine import get_db, engine
-from db import db_models
-from pydantic import BaseModel
-from pydantic import Field
+from pydantic import BaseModel, Field
 from typing import Optional
-from enum import Enum
 from email_validator import validate_email, EmailNotValidError
 import uuid
 import bcrypt
+
+from db.init_engine import get_db, engine
+from db import db_models
 from utils import api_resp, error_resp
 from utils import REGISTER_SUCCESS_RESPONSE, INVALID_EMAIL_REGISTER_RESPONSE, INVALID_USER_TYPE_REGISTER_RESPONSE, VALIDATION_ERROR_REGISTER_RESPONSES, INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
 from utils import LOGIN_SUCCESS_RESPONSE, INVALID_EMAIL_RESPONSE, UNAUTHORIZED_RESPONSES, USER_NOT_FOUND_RESPONSE
 
-class user_type(str, Enum):
-    TEACHER = "teacher"
-    STUDENT = "student"
-
-class user_login(BaseModel):
-    user_id: str  # either email or username
-    password: str
-    user_type: user_type
+db_models.Base.metadata.create_all(bind=engine)
 
 class user_register(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
     password: str = Field(..., min_length=1, max_length=128)
     user_id: str
-    user_type: user_type # identify the user
+    user_type: db_models.UserType
 
-user_model_id_map = {
-    user_type.TEACHER: (db_models.teacher, db_models.teacher.email),
-    user_type.STUDENT: (db_models.student, db_models.student.user_name),
-}
+class user_login(BaseModel):
+    user_id: str
+    password: str
+    user_type: db_models.UserType
 
-router = APIRouter()
-router: APIRouter = APIRouter(prefix="/user")
-db_models.Base.metadata.create_all(bind=engine)
+router = APIRouter(prefix="/user")
 
+def hash_password(plain_password: str):
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(plain_password.encode("utf-8"), salt).decode("utf-8")
 
-def hash_password(plain_password: str): # Function to hash the password
-    salt: bytes = bcrypt.gensalt()
-    return bcrypt.hashpw(plain_password.encode('utf-8'), salt).decode('utf-8')
+def verify_password(plain_password: str, hashed_password: str):
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
-def verify_password(plain_password: str, hashed_password: str): # Function to verify the password
-    return bcrypt.checkpw(plain_password.encode('utf-8'), hashed_password.encode('utf-8'))
-
-
-@router.post(
-    "/register",
-    tags=["user"],
-    status_code=status.HTTP_201_CREATED,
-    responses={
-        201: REGISTER_SUCCESS_RESPONSE,
-        400: INVALID_EMAIL_REGISTER_RESPONSE,
-        401: INVALID_USER_TYPE_REGISTER_RESPONSE,
-        422: VALIDATION_ERROR_REGISTER_RESPONSES,
-        500: INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
-    }
-)
-async def register(payload: user_register, db:Session = Depends(get_db)):
-    
-    model_info = user_model_id_map.get(payload.user_type)
-
-    if not model_info:
-        content = api_resp(success=False, message="Invalid user type", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
-        return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
-    
-    model_class, identifier_field = model_info
-
-    existing_user = db.query(model_class).filter(identifier_field == payload.user_id).first()
-    
+@router.post("/register", tags=["user"], status_code=status.HTTP_201_CREATED, responses={
+    201: REGISTER_SUCCESS_RESPONSE,
+    400: INVALID_EMAIL_REGISTER_RESPONSE,
+    401: INVALID_USER_TYPE_REGISTER_RESPONSE,
+    422: VALIDATION_ERROR_REGISTER_RESPONSES,
+    500: INTERNAL_SERVER_ERROR_REGISTER_RESPONSE,
+})
+async def register(payload: user_register, db: Session = Depends(get_db)):
+    existing_user = db.query(db_models.User).filter(db_models.User.user_id == payload.user_id).first()
     if existing_user:
-        content = api_resp(success=False, message="User already exists", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
-        return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        return JSONResponse(
+            content=api_resp(success=False, message="User already exists", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict(),
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        )
 
-    if payload.user_type == user_type.TEACHER:
-        if not payload.user_id:
-            content = api_resp(success=False, message="Email is required for teacher registration", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
-            return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)  
+    if payload.user_type == db_models.UserType.TEACHER:
         try:
-            valid = validate_email(payload.user_id.strip())
-            identifier = valid.email.lower()
+            validated = validate_email(payload.user_id)
+            user_id = validated.email.lower()
         except EmailNotValidError as e:
-            content = api_resp(success=False, message="Invalid email address", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
-            return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY) 
-
-        new_user = model_class(
-            email=identifier,
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-            password=hash_password(payload.password)
-        )
-
-    elif payload.user_type == user_type.STUDENT:
-        if not payload.user_id:
-            content = api_resp(success=False, message="Username is required for student registration", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
-            return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY) 
-            
-        identifier = payload.user_id.strip()
-        new_user = model_class(
-            user_name=identifier,
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-            password=hash_password(payload.password)
-        )
+            return JSONResponse(
+                content=api_resp(False, f"Invalid email: {str(e)}", error=error_resp(status.HTTP_400_BAD_REQUEST)).dict(),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
     else:
-        content = api_resp(success=False, message="Unsupported user type", error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)).dict()
-        return JSONResponse(content=content, status_code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+        user_id = payload.user_id.strip()
+
+    new_user = db_models.User(
+        user_id=user_id,
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        password=hash_password(payload.password),
+        user_type=payload.user_type,
+    )
 
     try:
         db.add(new_user)
@@ -116,51 +77,53 @@ async def register(payload: user_register, db:Session = Depends(get_db)):
         db.refresh(new_user)
     except Exception as e:
         db.rollback()
-        content = api_resp(success=False, message="Failed to register", error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)).dict()
-        return JSONResponse(content=content, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+        return JSONResponse(
+            content=api_resp(False, "Failed to register", error=error_resp(status.HTTP_500_INTERNAL_SERVER_ERROR)).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
-    content = api_resp(success=True, message="Register successful", data=None).dict()
-    return JSONResponse(content=content, status_code=status.HTTP_201_CREATED)
+    return JSONResponse(
+        content=api_resp(success=True, message="Register successful", data=None).dict(),
+        status_code=status.HTTP_201_CREATED,
+    )
 
-@router.post(
-    "/login", 
-    tags=["user"], 
-    status_code=status.HTTP_200_OK,
-    responses={
-        200: LOGIN_SUCCESS_RESPONSE,
-        400: INVALID_EMAIL_RESPONSE,
-        401: UNAUTHORIZED_RESPONSES,
-        404: USER_NOT_FOUND_RESPONSE
-    }
-)
+@router.post("/login", tags=["user"], status_code=status.HTTP_200_OK, responses={
+    200: LOGIN_SUCCESS_RESPONSE,
+    400: INVALID_EMAIL_RESPONSE,
+    401: UNAUTHORIZED_RESPONSES,
+    404: USER_NOT_FOUND_RESPONSE,
+})
 async def login(user: user_login, request: Request, db: Session = Depends(get_db)):
+    user_id = user.user_id
 
-    model_info = user_model_id_map.get(user.user_type)
-
-    if not model_info:
-        content = api_resp(success=False, message="Invalid user type", error=error_resp(code=status.HTTP_401_UNAUTHORIZED)).dict()
-        return JSONResponse(content=content, status_code=status.HTTP_401_UNAUTHORIZED)
-
-    model_class, identifier_field = model_info
-
-    if user.user_type == user_type.TEACHER:
+    if user.user_type == db_models.UserType.TEACHER:
         try:
-            valid = validate_email(user.user_id)
-            user.user_id = valid.email
+            validated = validate_email(user.user_id)
+            user_id = validated.email.lower()
         except EmailNotValidError as e:
-            content = api_resp(success=False, message=f"Invalid email address: {str(e)}", error=error_resp(code=status.HTTP_400_BAD_REQUEST)).dict()
-            return JSONResponse(content=content, status_code=status.HTTP_400_BAD_REQUEST)
+            return JSONResponse(
+                content=api_resp(False, f"Invalid email: {str(e)}", error=error_resp(status.HTTP_400_BAD_REQUEST)).dict(),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
 
-    db_user = db.query(model_class).filter(identifier_field == user.user_id).first()
+    db_user = db.query(db_models.User).filter(
+        db_models.User.user_id == user_id,
+        db_models.User.user_type == user.user_type
+    ).first()
 
     if not db_user:
-        content = api_resp(success=False, message="User does not exist", error=error_resp(code=status.HTTP_404_NOT_FOUND)).dict()
-        return JSONResponse(content=content, status_code=status.HTTP_404_NOT_FOUND)
+        return JSONResponse(
+            content=api_resp(success=False, message="User does not exist", error=error_resp(code=status.HTTP_404_NOT_FOUND)).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
 
     if not verify_password(user.password, db_user.password):
-        content = api_resp(success=False, message="Password is incorrect", error=error_resp(code=status.HTTP_401_UNAUTHORIZED)).dict()
-        return JSONResponse(content=content, status_code=status.HTTP_401_UNAUTHORIZED)
-    
-    content = api_resp(success=True, message="Login successful", data={"api_key": str(uuid.uuid4())}).dict()
-    return JSONResponse(content=content, status_code=status.HTTP_200_OK)
+        return JSONResponse(
+            content=api_resp(success=False, message="Incorrect password", error=error_resp(status.HTTP_401_UNAUTHORIZED)).dict(),
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+
+    return JSONResponse(
+        content=api_resp(success=True, message="Login successful", data={"api_key": str(uuid.uuid4())}).dict(),
+        status_code=status.HTTP_200_OK,
+    )
