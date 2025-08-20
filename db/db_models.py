@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Enum, PrimaryKeyConstraint
+from sqlalchemy import Column, String, Enum, Integer
 from db.init_engine import Base
 import enum
 
@@ -17,7 +17,13 @@ class User(Base):
 
 class Class(Base):
     __tablename__ = "class"
-
-    class_name = Column(String(64), primary_key=True, nullable=False)
-    class_owner = Column(String(64), primary_key=True, nullable=False)
+    class_id = Column(Integer, primary_key=True, nullable=False)
+    class_name = Column(String(64), nullable=False)
+    class_owner = Column(String(64), nullable=False)
     class_description = Column(String(255))  # Just a text field, not unique or PK
+
+class Tag(Base):
+    __tablename__ = "tag"
+    tag_id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    tag_name = Column(String(32), nullable=False)
+    class_id = Column(Integer, nullable=False)
