@@ -12,6 +12,9 @@ from db import db_models
 from utils import api_resp, error_resp
 from utils import REGISTER_SUCCESS_RESPONSE, INVALID_EMAIL_REGISTER_RESPONSE, INVALID_USER_TYPE_REGISTER_RESPONSE, VALIDATION_ERROR_REGISTER_RESPONSES, INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
 from utils import LOGIN_SUCCESS_RESPONSE, INVALID_EMAIL_RESPONSE, UNAUTHORIZED_RESPONSES, USER_NOT_FOUND_RESPONSE
+from middleware import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
+from datetime import timedelta
+from fastapi.security import OAuth2PasswordRequestForm
 
 db_models.Base.metadata.create_all(bind=engine)
 
@@ -93,22 +96,11 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
     401: UNAUTHORIZED_RESPONSES,
     404: USER_NOT_FOUND_RESPONSE,
 })
-async def login(user: user_login, request: Request, db: Session = Depends(get_db)):
-    user_id = user.user_id
-
-    if user.user_type == db_models.UserType.TEACHER:
-        try:
-            validated = validate_email(user.user_id)
-            user_id = validated.email.lower()
-        except EmailNotValidError as e:
-            return JSONResponse(
-                content=api_resp(False, f"Invalid email: {str(e)}", error=error_resp(status.HTTP_400_BAD_REQUEST)).dict(),
-                status_code=status.HTTP_400_BAD_REQUEST,
-            )
+async def login( request: Request, user: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    user_id = user.username
 
     db_user = db.query(db_models.User).filter(
         db_models.User.user_id == user_id,
-        db_models.User.user_type == user.user_type
     ).first()
 
     if not db_user:
@@ -119,11 +111,25 @@ async def login(user: user_login, request: Request, db: Session = Depends(get_db
 
     if not verify_password(user.password, db_user.password):
         return JSONResponse(
-            content=api_resp(success=False, message="Incorrect password", error=error_resp(status.HTTP_401_UNAUTHORIZED)).dict(),
+            content=api_resp(success=False, message="Incorrect password", error=error_resp(code=status.HTTP_401_UNAUTHORIZED)).dict(),
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user_id}, expires_delta=access_token_expires
+    )
 
     return JSONResponse(
-        content=api_resp(success=True, message="Login successful", data={"api_key": str(uuid.uuid4())}).dict(),
+        content=api_resp(success=True, message="Login successful", data={"access_token": access_token, "token_type": "bearer"}).dict(),
         status_code=status.HTTP_200_OK,
     )
+@router.get("/profile", tags=["user"])
+async def read_profile(current_user: db_models.User = Depends(get_current_user)):
+    return {
+        "user_id": current_user.user_id,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "user_type": current_user.user_type.value,
+    }
+
