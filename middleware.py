@@ -8,10 +8,7 @@ from typing import Optional
 
 from db import db_models
 from db.init_engine import get_db
-
-SECRET_KEY = "your-secret-key"  # Use environment variables in production
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/user/login")
 
