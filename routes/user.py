@@ -9,9 +9,10 @@ from db import db_models
 from utils import api_resp, error_resp
 from utils import REGISTER_SUCCESS_RESPONSE, INVALID_EMAIL_REGISTER_RESPONSE, INVALID_USER_TYPE_REGISTER_RESPONSE, VALIDATION_ERROR_REGISTER_RESPONSES, INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
 from utils import LOGIN_SUCCESS_RESPONSE, INVALID_EMAIL_RESPONSE, UNAUTHORIZED_RESPONSES, USER_NOT_FOUND_RESPONSE
-from middleware import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
+from middleware import create_access_token, get_current_user
 from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
+from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 db_models.Base.metadata.create_all(bind=engine)
 
@@ -112,7 +113,7 @@ async def login( request: Request, user: OAuth2PasswordRequestForm = Depends(), 
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
     access_token = create_access_token(
         data={"sub": user_id}, expires_delta=access_token_expires
     )
