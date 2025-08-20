@@ -2,11 +2,8 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
-from typing import Optional
 from email_validator import validate_email, EmailNotValidError
-import uuid
 import bcrypt
-
 from db.init_engine import get_db, engine
 from db import db_models
 from utils import api_resp, error_resp
@@ -60,7 +57,7 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
             user_id = validated.email.lower()
         except EmailNotValidError as e:
             return JSONResponse(
-                content=api_resp(False, f"Invalid email: {str(e)}", error=error_resp(status.HTTP_400_BAD_REQUEST)).dict(),
+                content=api_resp(success=False, message=f"Invalid email: {str(e)}", error=error_resp(code=status.HTTP_400_BAD_REQUEST)).dict(),
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
     else:
@@ -81,7 +78,7 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         return JSONResponse(
-            content=api_resp(False, "Failed to register", error=error_resp(status.HTTP_500_INTERNAL_SERVER_ERROR)).dict(),
+            content=api_resp(success=False, message="Failed to register", error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -124,12 +121,3 @@ async def login( request: Request, user: OAuth2PasswordRequestForm = Depends(), 
         content=api_resp(success=True, message="Login successful", data={"access_token": access_token, "token_type": "bearer"}).dict(),
         status_code=status.HTTP_200_OK,
     )
-@router.get("/profile", tags=["user"])
-async def read_profile(current_user: db_models.User = Depends(get_current_user)):
-    return {
-        "user_id": current_user.user_id,
-        "first_name": current_user.first_name,
-        "last_name": current_user.last_name,
-        "user_type": current_user.user_type.value,
-    }
-
