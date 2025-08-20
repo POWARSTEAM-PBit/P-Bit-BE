@@ -24,4 +24,4 @@ async def create_class(payload: create_class_input, db: Session = Depends(get_db
     ## Check that the valid user has already created a class with the same name if so
     ##then dont allow
 
-    
+    print(2)
