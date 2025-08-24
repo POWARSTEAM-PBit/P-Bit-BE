@@ -2,19 +2,17 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
-from typing import Optional
 from email_validator import validate_email, EmailNotValidError
-import uuid
 import bcrypt
-
 from db.init_engine import get_db, engine
 from db import db_models
 from utils import api_resp, error_resp
 from utils import REGISTER_SUCCESS_RESPONSE, INVALID_EMAIL_REGISTER_RESPONSE, INVALID_USER_TYPE_REGISTER_RESPONSE, VALIDATION_ERROR_REGISTER_RESPONSES, INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
 from utils import LOGIN_SUCCESS_RESPONSE, INVALID_EMAIL_RESPONSE, UNAUTHORIZED_RESPONSES, USER_NOT_FOUND_RESPONSE
-from middleware import create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES, get_current_user
+from middleware import create_access_token, get_current_user
 from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
+from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 db_models.Base.metadata.create_all(bind=engine)
 
@@ -60,7 +58,7 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
             user_id = validated.email.lower()
         except EmailNotValidError as e:
             return JSONResponse(
-                content=api_resp(False, f"Invalid email: {str(e)}", error=error_resp(status.HTTP_400_BAD_REQUEST)).dict(),
+                content=api_resp(success=False, message=f"Invalid email: {str(e)}", error=error_resp(code=status.HTTP_400_BAD_REQUEST)).dict(),
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
     else:
@@ -81,7 +79,7 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         return JSONResponse(
-            content=api_resp(False, "Failed to register", error=error_resp(status.HTTP_500_INTERNAL_SERVER_ERROR)).dict(),
+            content=api_resp(success=False, message="Failed to register", error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
@@ -115,7 +113,7 @@ async def login( request: Request, user: OAuth2PasswordRequestForm = Depends(), 
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
     access_token = create_access_token(
         data={"sub": user_id}, expires_delta=access_token_expires
     )
@@ -124,12 +122,3 @@ async def login( request: Request, user: OAuth2PasswordRequestForm = Depends(), 
         content=api_resp(success=True, message="Login successful", data={"access_token": access_token, "token_type": "bearer"}).dict(),
         status_code=status.HTTP_200_OK,
     )
-@router.get("/profile", tags=["user"])
-async def read_profile(current_user: db_models.User = Depends(get_current_user)):
-    return {
-        "user_id": current_user.user_id,
-        "first_name": current_user.first_name,
-        "last_name": current_user.last_name,
-        "user_type": current_user.user_type.value,
-    }
-
