@@ -14,8 +14,6 @@ from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
 from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
-db_models.Base.metadata.create_all(bind=engine)
-
 class user_register(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=50)
     last_name: str = Field(..., min_length=1, max_length=50)
@@ -54,7 +52,8 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
 
     if payload.user_type == db_models.UserType.TEACHER:
         try:
-            validated = validate_email(payload.user_id)
+            # Use check_deliverability=False to avoid DNS lookups
+            validated = validate_email(payload.user_id, check_deliverability=False)
             user_id = validated.email.lower()
         except EmailNotValidError as e:
             return JSONResponse(
@@ -94,7 +93,7 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
     401: UNAUTHORIZED_RESPONSES,
     404: USER_NOT_FOUND_RESPONSE,
 })
-async def login( request: Request, user: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+async def login(user: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user_id = user.username
 
     db_user = db.query(db_models.User).filter(
@@ -113,7 +112,7 @@ async def login( request: Request, user: OAuth2PasswordRequestForm = Depends(), 
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     
-    access_token_expires = timedelta(minutes=int(ACCESS_TOKEN_EXPIRE_MINUTES))
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user_id}, expires_delta=access_token_expires
     )
@@ -122,3 +121,13 @@ async def login( request: Request, user: OAuth2PasswordRequestForm = Depends(), 
         content=api_resp(success=True, message="Login successful", data={"access_token": access_token, "token_type": "bearer"}).dict(),
         status_code=status.HTTP_200_OK,
     )
+
+@router.get("/profile", tags=["user"])
+async def read_profile(current_user: db_models.User = Depends(get_current_user)):
+    return {
+        "user_id": current_user.user_id,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "user_type": current_user.user_type.value,
+    }
+
