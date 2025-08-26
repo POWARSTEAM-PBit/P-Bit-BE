@@ -1,12 +1,11 @@
 from fastapi import FastAPI
 import routes.user as user
-import routes._class as _class
 import routes.class_management as class_management
 from fastapi.middleware.cors import CORSMiddleware
 from db.init_engine import init_db
 
 # Initialize database tables
-init_db()  # Re-enabled after migration
+init_db()
 
 app = FastAPI()
 
@@ -14,8 +13,18 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:5173",  # Vite dev server
-        "http://127.0.0.1:5173",  # just in case
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:4200",
+        "http://127.0.0.1:4200",
+        "http://localhost:4000",
+        "http://127.0.0.1:4000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
@@ -34,13 +43,15 @@ app.add_middleware(
     max_age=86400,  # Cache preflight requests for 24 hours
 )
 
-app.include_router(user.router)
-app.include_router(_class.router)
 # Include routers AFTER CORS middleware
 app.include_router(user.router)
 app.include_router(class_management.router)
 
 @app.get("/")
 def read_root():
-    return {"message": "hello"}
+    return {"message": "P-Bit WebApp Backend API"}
+
+@app.get("/health")
+def health_check():
+    return {"status": "healthy", "message": "Backend is running"}
 
