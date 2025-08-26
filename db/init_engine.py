@@ -3,6 +3,7 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import QueuePool
 from constants import DB_HOSTNAME, DB_PASSWORD, DB_PORT, DB_USER, DB_DATABASE
 
+# Amazon database connection
 URL_DATABASE = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOSTNAME}:{DB_PORT}/{DB_DATABASE}'
 
 engine = create_engine(
