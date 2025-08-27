@@ -39,7 +39,7 @@ def test_join_class(client, teacher_payload, student_payload, class_payload):
     
     Verifies successful registration, login, class creation, and class joining.
     """
-    
+
     reg_resp = client.post("/user/register", json=teacher_payload)
     assert reg_resp.status_code == 201
 
@@ -76,6 +76,69 @@ def test_join_class(client, teacher_payload, student_payload, class_payload):
     }
     join_resp = client.post("/class/join", json=join_payload, headers=student_headers)
     assert join_resp.status_code == 200
+
+
+
+def test_set_pin_without_identification(client):
+    """
+    Integration test for attempting to set a PIN without student identification.
+    This should return a 400 error since the endpoint requires student identification,
+    but it is not implemented yet.
+    """
+    payload = {
+        "pin_code": "5678"
+    }
+
+    response = client.post("/class/set-pin", json=payload)
+    
+    assert response.status_code == 400
+    resp_json = response.json()
+    assert resp_json["success"] is False
+    assert "Student identification required" in resp_json["message"]
+
+
+def test_join_anonymous_class(client, teacher_payload, class_payload):
+    """
+    Integration test for an anonymous user joining a class using the class passphrase and PIN code.
+    - Registers and logs in a teacher to create a class.
+    - Simulates an anonymous student joining the class using a first name, PIN code, and class passphrase.
+    - Verifies the user is successfully added as a class member.
+    """
+
+    # Step 1: Register and login the teacher
+    reg_resp = client.post("/user/register", json=teacher_payload)
+    assert reg_resp.status_code == 201
+
+    login_resp = client.post("/user/login", data={
+        "username": teacher_payload["user_id"],
+        "password": teacher_payload["password"]
+    })
+    assert login_resp.status_code == 200
+    teacher_token = login_resp.json()["data"]["access_token"]
+    teacher_headers = {"Authorization": f"Bearer {teacher_token}"}
+
+    # Step 2: Create class
+    create_resp = client.post("/class/create", json=class_payload, headers=teacher_headers)
+    assert create_resp.status_code == 201
+    class_data = create_resp.json()["data"]
+    passphrase = class_data["passphrase"]
+
+    # Step 3: Join class anonymously
+    anon_payload = {
+        "passphrase": passphrase,
+        "first_name": "TestStudent",
+        "pin_code": "1234"
+    }
+
+    join_resp = client.post("/class/join-anonymous", json=anon_payload)
+
+    # Step 4: Verify join was successful
+    assert join_resp.status_code == 200
+    resp_json = join_resp.json()
+    assert resp_json["success"] is True
+    assert "class_id" in resp_json["data"]
+    assert resp_json["data"]["first_name"] == anon_payload["first_name"]
+
 
 
 
