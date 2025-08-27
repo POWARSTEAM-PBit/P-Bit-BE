@@ -62,6 +62,16 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
             )
     else:
         user_id = payload.user_id.strip()
+        if not user_id:
+            return JSONResponse(
+                content=api_resp(
+                    success=False,
+                    message="Username is required for student registration",
+                    error=error_resp(code=status.HTTP_422_UNPROCESSABLE_ENTITY)
+                ).model_dump(),
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
 
     new_user = db_models.User(
         user_id=user_id,
