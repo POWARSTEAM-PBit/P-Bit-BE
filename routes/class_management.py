@@ -815,3 +815,5 @@ async def leave_class(
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+
+
