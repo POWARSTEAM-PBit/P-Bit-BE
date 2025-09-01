@@ -5,7 +5,7 @@ dev.db
 .idea
 .DS_Store
 __pycache__*
-##.env
+.env
 venv/
 
 tests/__pycache__*
