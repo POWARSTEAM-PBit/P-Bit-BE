@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -343,69 +343,94 @@ async def set_pin_code(
         status_code=status.HTTP_400_BAD_REQUEST,
     )
 
-# Get class members (teacher only)
+    
+# Get class members (owner or enrolled member)
 @router.get("/{class_id}/members", tags=["class"], status_code=status.HTTP_200_OK)
 async def get_class_members(
     class_id: str,
+    sort_by: str = Query(default="joined_at", pattern="^(joined_at|first_name|user_id)$"),
+    order: str = Query(default="asc", pattern="^(asc|desc)$"),
     current_user: db_models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    # Find the class
-    class_obj = db.query(db_models.Class).filter(
-        db_models.Class.id == class_id
-    ).first()
-    
+    # 1) find class
+    class_obj = db.query(db_models.Class).filter(db_models.Class.id == class_id).first()
     if not class_obj:
         return JSONResponse(
             content=api_resp(
-                success=False, 
-                message="Class not found", 
-                error=error_resp(code=status.HTTP_404_NOT_FOUND)
+                success=False,
+                message="Class not found",
+                error=error_resp(code=status.HTTP_404_NOT_FOUND),
             ).dict(),
             status_code=status.HTTP_404_NOT_FOUND,
         )
-    
-    # Check if user is the owner
-    if class_obj.owner_id != current_user.user_id:
+
+    # 2) permission: owner OR enrolled member
+    is_owner = (class_obj.owner_id == current_user.user_id)
+    is_member = (
+        db.query(db_models.ClassMember)
+          .filter(
+              db_models.ClassMember.class_id == class_id,
+              db_models.ClassMember.user_id == current_user.user_id,
+          )
+          .first()
+        is not None
+    )
+    if not (is_owner or is_member):
         return JSONResponse(
             content=api_resp(
-                success=False, 
-                message="Only the class owner can view members", 
-                error=error_resp(code=status.HTTP_403_FORBIDDEN)
+                success=False,
+                message="Not authorized to view class members",
+                error=error_resp(code=status.HTTP_403_FORBIDDEN),
             ).dict(),
             status_code=status.HTTP_403_FORBIDDEN,
         )
-    
-    # Get all members with their details
-    members = db.query(db_models.ClassMember).filter(
-        db_models.ClassMember.class_id == class_id
-    ).all()
-    
-    members_data = []
-    for member in members:
-        user = db.query(db_models.User).filter(
-            db_models.User.user_id == member.user_id
-        ).first()
-        
-        if user:
-            members_data.append({
-                "user_id": user.user_id,
-                "first_name": user.first_name,
-                "last_name": user.last_name,
-                "user_type": user.user_type.value,
-                "joined_at": member.joined_at.isoformat() if member.joined_at else None,
-                "pin_code": user.pin_code if user.user_type == db_models.UserType.STUDENT else None,
-                "pin_reset_required": user.pin_reset_required if user.user_type == db_models.UserType.STUDENT else False
-            })
-    
+
+    # 3) build query (join to avoid N+1)
+    q = (
+        db.query(
+            db_models.User.user_id,
+            db_models.User.first_name,
+            db_models.User.last_name,
+            db_models.ClassMember.joined_at,
+        )
+        .join(db_models.ClassMember, db_models.ClassMember.user_id == db_models.User.user_id)
+        .filter(db_models.ClassMember.class_id == class_id)
+    )
+
+    # 4) sorting
+    if sort_by == "first_name":
+        sort_col = db_models.User.first_name
+    elif sort_by == "user_id":
+        sort_col = db_models.User.user_id
+    else:
+        sort_col = db_models.ClassMember.joined_at
+
+    q = q.order_by(sort_col.desc() if order.lower() == "desc" else sort_col.asc())
+
+    # 5) execute & serialize (only required fields for classmates view)
+    rows = q.all()
+    members_data = [
+        {
+            "user_id": r.user_id,
+            "first_name": r.first_name,
+            "last_name": r.last_name,
+            "joined_at": r.joined_at.isoformat() if r.joined_at else None,
+        }
+        for r in rows
+    ]
+
     return JSONResponse(
         content=api_resp(
-            success=True, 
-            message="Class members retrieved successfully", 
-            data=members_data
+            success=True,
+            message="Class members retrieved successfully",
+            data=members_data,
         ).dict(),
         status_code=status.HTTP_200_OK,
     )
+
+
+
 
 # Reset student PIN code (teacher only)
 @router.post("/{class_id}/reset-student-pin/{student_id}", tags=["class"], status_code=status.HTTP_200_OK)
