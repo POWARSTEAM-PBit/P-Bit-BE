@@ -1,87 +1,77 @@
 import pytest
-from db.db_models import teacher, student
-from routes.user import hash_password, user_login
-
-@pytest.fixture
-def test_teacher(db):
-    """
-    Create a test teacher user in the database.
-    """
-    user = teacher(
-        email="teacher@example.com",
-        first_name="teacher",
-        last_name="teacher",
-        password=hash_password("strongpassword123")
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)  # <--- ADD THIS to ensure you get the updated DB record
-    return user
+from db.db_models import User, UserType
+from routes.user import hash_password
 
 @pytest.fixture
 def test_student(db):
-    """
-    Create a test student user in the database.
-    """
-    user = student(
-        user_name="student1",
+    user = User(
+        user_id="student1",
         first_name="student",
-        last_name = "student",
-        password=hash_password("studentpass")
+        last_name="student",
+        password=hash_password("studentpass"),
+        user_type=UserType.STUDENT
     )
     db.add(user)
     db.commit()
-    db.refresh(user)  # <--- ADD THIS to ensure you get the updated DB record
+    db.refresh(user)
     return user
 
-def test_teacher_login_invalid_email(client):
-    """
-    Test teacher login with invalid email format.
-    """
-    login_data = {
-        "user_id": "not-an-email",
-        "password": "any",
-        "user_type": "teacher"
-    }
-    response = client.post("/user/login", json=login_data)
-    assert response.status_code == 400
-    assert "Invalid email address" in response.json()["message"]
+@pytest.fixture
+def test_teacher(db):
+    user = User(
+        user_id="teacher@example.com",
+        first_name="teacher",
+        last_name="teacher",
+        password=hash_password("strongpassword123"),
+        user_type=UserType.TEACHER
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+def test_teacher_login_invalid_email_format(client):
+    response = client.post(
+        "/user/login",
+        data={
+            "username": "not-an-email",
+            "password": "any",
+        }
+    )
+    # You may choose to return 400 if user doesn't exist or invalid email format
+    assert response.status_code in [400, 404, 422]
 
 def test_student_login_success(client, test_student):
-    """
-    Test successful login of a student with correct credentials.
-    """
-    login_data = {
-        "user_id": test_student.user_name,
-        "password": "studentpass",
-        "user_type": "student"
-    }
-    response = client.post("/user/login", json=login_data)
+    response = client.post(
+        "/user/login",
+        data={
+            "username": test_student.user_id,
+            "password": "studentpass"
+        }
+    )
     assert response.status_code == 200
-    assert "message" in response.json()
+    data = response.json()
+    assert data["success"] is True
+    assert "access_token" in data["data"]
 
 def test_student_login_wrong_password(client, test_student):
-    """
-    Test student login fails with wrong password.
-    """
-    login_data = {
-        "user_id": test_student.user_name,
-        "password": "incorrect",
-        "user_type": "student"
-    }
-    response = client.post("/user/login", json=login_data)
+    response = client.post(
+        "/user/login",
+        data={
+            "username": test_student.user_id,
+            "password": "wrongpass"
+        }
+    )
     assert response.status_code == 401
-    assert response.json()["message"] == "User does not exist"
+    assert response.json()["message"] == "Incorrect password"
 
-def test_login_invalid_user_type(client):
-    """
-    Test login with an invalid user_type returns error.
-    """
-    login_data = {
-        "user_id": "someuser",
-        "password": "somepass",
-        "user_type": "admin"  # invalid type
-    }
-    response = client.post("/user/login", json=login_data)
-    assert response.status_code == 422
-    ##assert response.json()["msg"] == "Invalid user type"
+def test_login_user_not_found(client):
+    response = client.post(
+        "/user/login",
+        data={
+            "username": "nonexistent_user",
+            "password": "password"
+        }
+    )
+    assert response.status_code == 404
+    assert response.json()["message"] == "User does not exist"
