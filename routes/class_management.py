@@ -49,6 +49,12 @@ class StudentInfo(BaseModel):
     pin_code: Optional[str]
     pin_reset_required: bool
 
+# >>> added: rename model
+class ClassRename(BaseModel):
+    # new class name
+    name: str = Field(..., min_length=1, max_length=100)
+# <<< added
+
 # Create a new class
 @router.post("/create", tags=["class"], status_code=status.HTTP_201_CREATED)
 async def create_class(
@@ -429,8 +435,102 @@ async def get_class_members(
         status_code=status.HTTP_200_OK,
     )
 
+# >>> added: rename endpoint
+@router.patch("/{class_id}/rename", tags=["class"], status_code=status.HTTP_200_OK)
+async def rename_class(
+    class_id: str,
+    payload: ClassRename,
+    current_user: db_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # find class
+    class_obj = db.query(db_models.Class).filter(db_models.Class.id == class_id).first()
+    if not class_obj:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Class not found",
+                error=error_resp(code=status.HTTP_404_NOT_FOUND),
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
 
+    # only owner (teacher) can rename
+    if current_user.user_type != db_models.UserType.TEACHER or class_obj.owner_id != current_user.user_id:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Only the class owner can rename this class",
+                error=error_resp(code=status.HTTP_403_FORBIDDEN),
+            ).dict(),
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
 
+    # normalize name
+    new_name = payload.name.strip()
+    if not new_name:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Name cannot be empty",
+                error=error_resp(code=status.HTTP_400_BAD_REQUEST),
+            ).dict(),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # if unchanged, still return success (idempotent)
+    if class_obj.name == new_name:
+        return JSONResponse(
+            content=api_resp(
+                success=True,
+                message="Class name is unchanged",
+                data={
+                    "id": class_obj.id,
+                    "name": class_obj.name,
+                    "subject": class_obj.subject,
+                    "description": class_obj.description,
+                    "passphrase": class_obj.passphrase,
+                    "owner_id": class_obj.owner_id,
+                    "created_at": class_obj.created_at.isoformat() if class_obj.created_at else None,
+                },
+            ).dict(),
+            status_code=status.HTTP_200_OK,
+        )
+
+    try:
+        # update name
+        class_obj.name = new_name
+        db.add(class_obj)
+        db.commit()
+        db.refresh(class_obj)
+
+        return JSONResponse(
+            content=api_resp(
+                success=True,
+                message="Class renamed successfully",
+                data={
+                    "id": class_obj.id,
+                    "name": class_obj.name,
+                    "subject": class_obj.subject,
+                    "description": class_obj.description,
+                    "passphrase": class_obj.passphrase,
+                    "owner_id": class_obj.owner_id,
+                    "created_at": class_obj.created_at.isoformat() if class_obj.created_at else None,
+                },
+            ).dict(),
+            status_code=status.HTTP_200_OK,
+        )
+    except Exception:
+        db.rollback()
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Failed to rename class",
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR),
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+# <<< added
 
 # Reset student PIN code (teacher only)
 @router.post("/{class_id}/reset-student-pin/{student_id}", tags=["class"], status_code=status.HTTP_200_OK)
