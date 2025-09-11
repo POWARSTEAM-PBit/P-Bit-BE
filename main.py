@@ -2,11 +2,8 @@ from fastapi import FastAPI
 import routes.user as user
 import routes.class_management as class_management
 from fastapi.middleware.cors import CORSMiddleware
-from db.init_engine import init_db
 
 # Initialize database tables
-init_db()
-
 app = FastAPI()
 
 # Add CORS middleware BEFORE including routers
@@ -43,15 +40,9 @@ app.add_middleware(
     max_age=86400,  # Cache preflight requests for 24 hours
 )
 
-# Include routers AFTER CORS middleware
 app.include_router(user.router)
 app.include_router(class_management.router)
 
 @app.get("/")
 def read_root():
     return {"message": "P-Bit WebApp Backend API"}
-
-@app.get("/health")
-def health_check():
-    return {"status": "healthy", "message": "Backend is running"}
-

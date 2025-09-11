@@ -52,20 +52,3 @@ class ClassMember(Base):
     # Relationships
     class_obj = relationship("Class", back_populates="members")
     user = relationship("User", back_populates="class_memberships")
-
-def generate_passphrase(length=8):
-    """Generate an easy-to-type unique passphrase"""
-    # Use only letters and numbers, avoiding confusing characters
-    alphabet = string.ascii_uppercase + string.digits
-    # Remove confusing characters: 0, O, 1, I, L
-    alphabet = alphabet.replace('0', '').replace('O', '').replace('1', '').replace('I', '').replace('L', '')
-
-    while True:
-        passphrase = ''.join(secrets.choice(alphabet) for _ in range(length))
-        # Ensure it's not all the same character
-        if len(set(passphrase)) > 1:
-            return passphrase
-
-def generate_pin_code():
-    """Generate a 4-digit PIN code"""
-    return ''.join(secrets.choice(string.digits) for _ in range(4))
