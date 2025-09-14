@@ -1,10 +1,8 @@
-from sqlalchemy import Column, String, Enum, ForeignKey, DateTime, Text, Boolean, Integer
+from sqlalchemy import Column, String, Enum, ForeignKey, DateTime, Text, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from db.init_engine import Base
 import enum
-import secrets
-import string
 
 class UserType(str, enum.Enum):
     STUDENT = "student"
@@ -52,3 +50,6 @@ class ClassMember(Base):
     # Relationships
     class_obj = relationship("Class", back_populates="members")
     user = relationship("User", back_populates="class_memberships")
+class Device(Base):
+    __tablename__ = "device"
+    mac_addr = Column(String(6), primary_key=True)
