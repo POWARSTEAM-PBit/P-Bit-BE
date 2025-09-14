@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from typing import Optional, List
 import uuid
-
+import secrets
+import string
+import time
 from db.init_engine import get_db
 from db import db_models
 from utils import api_resp, error_resp
@@ -55,14 +57,17 @@ class ClassRename(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
 # <<< added
 
-# Create a new class
+
 @router.post("/create", tags=["class"], status_code=status.HTTP_201_CREATED)
 async def create_class(
     payload: ClassCreate, 
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Check if user is a teacher
+    """
+    The following function creates a class for a given teacher
+    """
+    
     if current_user.user_type != db_models.UserType.TEACHER:
         return JSONResponse(
             content=api_resp(
@@ -73,16 +78,14 @@ async def create_class(
             status_code=status.HTTP_403_FORBIDDEN,
         )
     
-    # Generate unique passphrase
-    passphrase = db_models.generate_passphrase()
-    
-    # Create new class
+    unique_passphrase = generate_passphrase()
+
     new_class = db_models.Class(
         id=str(uuid.uuid4()),
         name=payload.name,
         subject=payload.subject,
         description=payload.description,
-        passphrase=passphrase,
+        passphrase=unique_passphrase,
         owner_id=current_user.user_id,
     )
     
@@ -118,13 +121,16 @@ async def create_class(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-# Join a class (for logged-in users)
 @router.post("/join", tags=["class"], status_code=status.HTTP_200_OK)
 async def join_class(
     payload: ClassJoin,
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    """
+    The following function assigns a teacher/student (logged in users) into the 
+    class.
+    """
     # Find class by passphrase
     class_obj = db.query(db_models.Class).filter(
         db_models.Class.passphrase == payload.passphrase
@@ -192,13 +198,15 @@ async def join_class(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-# Join a class anonymously (no login required)
 @router.post("/join-anonymous", tags=["class"], status_code=status.HTTP_200_OK)
 async def join_class_anonymous(
     payload: ClassJoinAnonymous,
     db: Session = Depends(get_db)
 ):
-    # Find class by passphrase
+    """
+    The following function allows non-logged in users to join a class
+    """
+    
     class_obj = db.query(db_models.Class).filter(
         db_models.Class.passphrase == payload.passphrase
     ).first()
@@ -213,18 +221,16 @@ async def join_class_anonymous(
             status_code=status.HTTP_404_NOT_FOUND,
         )
     
-    # Create a temporary student user
-    import time
-    student_id = f"student_{payload.first_name.lower()}_{int(time.time())}"
+    tmp_student_id = generate_tmp_user(payload.first_name)
     
     # Check if this student ID already exists
     existing_user = db.query(db_models.User).filter(
-        db_models.User.user_id == student_id
+        db_models.User.user_id == tmp_student_id
     ).first()
     
     if existing_user:
         user_id = existing_user.user_id
-        # Check if PIN reset is required
+        
         if existing_user.pin_reset_required:
             return JSONResponse(
                 content=api_resp(
@@ -235,7 +241,6 @@ async def join_class_anonymous(
                 status_code=status.HTTP_400_BAD_REQUEST,
             )
         
-        # Verify PIN code for existing user
         if existing_user.pin_code != payload.pin_code:
             return JSONResponse(
                 content=api_resp(
@@ -246,9 +251,8 @@ async def join_class_anonymous(
                 status_code=status.HTTP_401_UNAUTHORIZED,
             )
     else:
-        # Create a new temporary student user with PIN
         temp_user = db_models.User(
-            user_id=student_id,
+            user_id=tmp_student_id,
             first_name=payload.first_name,
             last_name="",  # Empty for anonymous students
             password="",   # No password for anonymous students
@@ -274,12 +278,12 @@ async def join_class_anonymous(
             )
     
     # Check if user is already a member of this class
-    existing_member = db.query(db_models.ClassMember).filter(
+    existing_member_class = db.query(db_models.ClassMember).filter(
         db_models.ClassMember.class_id == class_obj.id,
         db_models.ClassMember.user_id == user_id
     ).first()
     
-    if existing_member:
+    if existing_member_class:
         return JSONResponse(
             content=api_resp(
                 success=False, 
@@ -359,9 +363,13 @@ async def get_class_members(
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # 1) find class
-    class_obj = db.query(db_models.Class).filter(db_models.Class.id == class_id).first()
-    if not class_obj:
+    """
+    The following function retrieves all the class members of a class, if the class
+    does not exist. Then an exception is raised
+    """
+    
+    existing_class = db.query(db_models.Class).filter(db_models.Class.id == class_id).first()
+    if not existing_class:
         return JSONResponse(
             content=api_resp(
                 success=False,
@@ -370,33 +378,26 @@ async def get_class_members(
             ).dict(),
             status_code=status.HTTP_404_NOT_FOUND,
         )
-
-    # 2) permission: owner OR enrolled member
-    is_owner = (class_obj.owner_id == current_user.user_id)
-    is_member = (
-        db.query(db_models.ClassMember)
-          .filter(
+    
+    is_member = db.query(db_models.ClassMember).filter(
               db_models.ClassMember.class_id == class_id,
               db_models.ClassMember.user_id == current_user.user_id,
-          )
-          .first()
-        is not None
-    )
-    if not (is_owner or is_member):
+          ).first()
+
+    if (not is_member) and (current_user.user_id != existing_class.owner_id):
         return JSONResponse(
-            content=api_resp(
+                content=api_resp(
                 success=False,
-                message="Not authorized to view class members",
+                message="Not authorised to view students from this class",
                 error=error_resp(code=status.HTTP_403_FORBIDDEN),
             ).dict(),
             status_code=status.HTTP_403_FORBIDDEN,
         )
+    
 
-    # 3) build query (join to avoid N+1)
-    q = (
-        db.query(
-            db_models.User.user_id,
-            db_models.User.first_name,
+    # join to avoid N+1
+    class_members = (
+        db.query(db_models.User.user_id, db_models.User.first_name,
             db_models.User.last_name,
             db_models.ClassMember.joined_at,
         )
@@ -404,7 +405,6 @@ async def get_class_members(
         .filter(db_models.ClassMember.class_id == class_id)
     )
 
-    # 4) sorting
     if sort_by == "first_name":
         sort_col = db_models.User.first_name
     elif sort_by == "user_id":
@@ -412,10 +412,10 @@ async def get_class_members(
     else:
         sort_col = db_models.ClassMember.joined_at
 
-    q = q.order_by(sort_col.desc() if order.lower() == "desc" else sort_col.asc())
+    class_members = class_members.order_by(sort_col.desc() if order.lower() == "desc" else sort_col.asc())
 
     # 5) execute & serialize (only required fields for classmates view)
-    rows = q.all()
+    rows = class_members.all()
     members_data = [
         {
             "user_id": r.user_id,
@@ -435,7 +435,6 @@ async def get_class_members(
         status_code=status.HTTP_200_OK,
     )
 
-# >>> added: rename endpoint
 @router.patch("/{class_id}/rename", tags=["class"], status_code=status.HTTP_200_OK)
 async def rename_class(
     class_id: str,
@@ -443,9 +442,12 @@ async def rename_class(
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # find class
-    class_obj = db.query(db_models.Class).filter(db_models.Class.id == class_id).first()
-    if not class_obj:
+    """
+    The following function renames an existing class
+    """
+    
+    existing_class = db.query(db_models.Class).filter(db_models.Class.id == class_id).first()
+    if not existing_class:
         return JSONResponse(
             content=api_resp(
                 success=False,
@@ -454,9 +456,8 @@ async def rename_class(
             ).dict(),
             status_code=status.HTTP_404_NOT_FOUND,
         )
-
-    # only owner (teacher) can rename
-    if current_user.user_type != db_models.UserType.TEACHER or class_obj.owner_id != current_user.user_id:
+    
+    if (existing_class.owner_id != current_user.user_id):
         return JSONResponse(
             content=api_resp(
                 success=False,
@@ -465,8 +466,18 @@ async def rename_class(
             ).dict(),
             status_code=status.HTTP_403_FORBIDDEN,
         )
+    
+    class_data = {
+        "id": existing_class.id,
+        "name": existing_class.name,
+        "subject": existing_class.subject,
+        "description": existing_class.description,
+        "passphrase": existing_class.passphrase,
+        "owner_id": existing_class.owner_id,
+        "created_at": existing_class.created_at.isoformat() if existing_class.created_at else None,
+    }
 
-    # normalize name
+    
     new_name = payload.name.strip()
     if not new_name:
         return JSONResponse(
@@ -479,44 +490,29 @@ async def rename_class(
         )
 
     # if unchanged, still return success (idempotent)
-    if class_obj.name == new_name:
+    if existing_class.name == new_name:
         return JSONResponse(
             content=api_resp(
                 success=True,
                 message="Class name is unchanged",
-                data={
-                    "id": class_obj.id,
-                    "name": class_obj.name,
-                    "subject": class_obj.subject,
-                    "description": class_obj.description,
-                    "passphrase": class_obj.passphrase,
-                    "owner_id": class_obj.owner_id,
-                    "created_at": class_obj.created_at.isoformat() if class_obj.created_at else None,
-                },
+                data=class_data,
             ).dict(),
             status_code=status.HTTP_200_OK,
         )
+    
+    class_data["name"] = new_name
 
     try:
-        # update name
-        class_obj.name = new_name
-        db.add(class_obj)
+        existing_class.name = new_name
+        db.add(existing_class)
         db.commit()
-        db.refresh(class_obj)
+        db.refresh(existing_class)
 
         return JSONResponse(
             content=api_resp(
                 success=True,
                 message="Class renamed successfully",
-                data={
-                    "id": class_obj.id,
-                    "name": class_obj.name,
-                    "subject": class_obj.subject,
-                    "description": class_obj.description,
-                    "passphrase": class_obj.passphrase,
-                    "owner_id": class_obj.owner_id,
-                    "created_at": class_obj.created_at.isoformat() if class_obj.created_at else None,
-                },
+                data=class_data,
             ).dict(),
             status_code=status.HTTP_200_OK,
         )
@@ -530,7 +526,6 @@ async def rename_class(
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
-# <<< added
 
 # Reset student PIN code (teacher only)
 @router.post("/{class_id}/reset-student-pin/{student_id}", tags=["class"], status_code=status.HTTP_200_OK)
@@ -728,18 +723,21 @@ async def get_owned_classes(
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Check if user is a teacher
+    """
+    The following function get's all classes owned by a teacher
+    """
+
     if current_user.user_type != db_models.UserType.TEACHER:
         return JSONResponse(
             content=api_resp(
-                success=False, 
+                success=False,
                 message="Only teachers can own classes", 
                 error=error_resp(code=status.HTTP_403_FORBIDDEN)
             ).dict(),
             status_code=status.HTTP_403_FORBIDDEN,
         )
     
-    # Get owned classes with member count
+    
     owned_classes = db.query(db_models.Class).filter(
         db_models.Class.owner_id == current_user.user_id
     ).all()
@@ -771,71 +769,74 @@ async def get_owned_classes(
         status_code=status.HTTP_200_OK,
     )
 
-# Get classes where current user is a member
 @router.get("/enrolled", tags=["class"], status_code=status.HTTP_200_OK)
 async def get_enrolled_classes(
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Get classes where user is a member
-    enrolled_classes = db.query(db_models.Class).join(
-        db_models.ClassMember
-    ).filter(
+    """
+    The following function retrieves all of the classes that the 
+    student is apart of. 
+    """
+
+    student_enrolled_classes = db.query(db_models.Class).join(db_models.ClassMember).filter(
         db_models.ClassMember.user_id == current_user.user_id
     ).all()
     
-    classes_data = []
-    for class_obj in enrolled_classes:
+    student_classes = []
+    for _class in student_enrolled_classes:
         # Get owner name
         owner = db.query(db_models.User).filter(
-            db_models.User.user_id == class_obj.owner_id
+            db_models.User.user_id == _class.owner_id
         ).first()
         
         # Get member count
         member_count = db.query(db_models.ClassMember).filter(
-            db_models.ClassMember.class_id == class_obj.id
+            db_models.ClassMember.class_id == _class.id
         ).count()
         
         # Get join date for current user
         membership = db.query(db_models.ClassMember).filter(
-            db_models.ClassMember.class_id == class_obj.id,
+            db_models.ClassMember.class_id == _class.id,
             db_models.ClassMember.user_id == current_user.user_id
         ).first()
         
-        classes_data.append({
-            "id": class_obj.id,
-            "name": class_obj.name,
-            "subject": class_obj.subject,
-            "description": class_obj.description,
-            "owner_id": class_obj.owner_id,
+        student_classes.append({
+            "id": _class.id,
+            "name": _class.name,
+            "subject": _class.subject,
+            "description": _class.description,
+            "owner_id": _class.owner_id,
             "owner_name": f"{owner.first_name} {owner.last_name}" if owner else "Unknown",
             "member_count": member_count,
             "joined_at": membership.joined_at.isoformat() if membership and membership.joined_at else None,
-            "created_at": class_obj.created_at.isoformat() if class_obj.created_at else None
+            "created_at": _class.created_at.isoformat() if _class.created_at else None
         })
     
     return JSONResponse(
         content=api_resp(
             success=True, 
             message="Enrolled classes retrieved successfully", 
-            data=classes_data
+            data=student_classes
         ).dict(),
         status_code=status.HTTP_200_OK,
     )
 
-# Delete a class (only by owner)
 @router.delete("/{class_id}", tags=["class"], status_code=status.HTTP_200_OK)
 async def delete_class(
     class_id: str,
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Find the class
-    class_obj = db.query(db_models.Class).filter(
+    """
+    The following function delete's a valid class
+    """
+    
+    does_class_exist = db.query(db_models.Class).filter(
         db_models.Class.id == class_id
     ).first()
     
-    if not class_obj:
+    if not does_class_exist:
         return JSONResponse(
             content=api_resp(
                 success=False, 
@@ -845,8 +846,7 @@ async def delete_class(
             status_code=status.HTTP_404_NOT_FOUND,
         )
     
-    # Check if user is the owner
-    if class_obj.owner_id != current_user.user_id:
+    if does_class_exist.owner_id != current_user.user_id:
         return JSONResponse(
             content=api_resp(
                 success=False, 
@@ -857,8 +857,7 @@ async def delete_class(
         )
     
     try:
-        # Delete the class (cascade will handle members)
-        db.delete(class_obj)
+        db.delete(does_class_exist)
         db.commit()
         
         return JSONResponse(
@@ -880,20 +879,23 @@ async def delete_class(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-# Leave a class (remove membership)
 @router.delete("/{class_id}/leave", tags=["class"], status_code=status.HTTP_200_OK)
 async def leave_class(
     class_id: str,
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Find the membership
-    membership = db.query(db_models.ClassMember).filter(
+    """
+    The following function allows students to leave the registered class, class-owners (teachers) cannot leave there
+    own class. 
+    """
+    
+    is_user_member = db.query(db_models.ClassMember).filter(
         db_models.ClassMember.class_id == class_id,
         db_models.ClassMember.user_id == current_user.user_id
     ).first()
     
-    if not membership:
+    if not is_user_member:
         return JSONResponse(
             content=api_resp(
                 success=False, 
@@ -903,12 +905,7 @@ async def leave_class(
             status_code=status.HTTP_404_NOT_FOUND,
         )
     
-    # Check if user is trying to leave their own class
-    class_obj = db.query(db_models.Class).filter(
-        db_models.Class.id == class_id
-    ).first()
-    
-    if class_obj and class_obj.owner_id == current_user.user_id:
+    if is_user_member.class_obj.owner_id == current_user.user_id:
         return JSONResponse(
             content=api_resp(
                 success=False, 
@@ -919,7 +916,7 @@ async def leave_class(
         )
     
     try:
-        db.delete(membership)
+        db.delete(is_user_member)
         db.commit()
         
         return JSONResponse(
@@ -940,3 +937,22 @@ async def leave_class(
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+def generate_passphrase(length=8):
+    """Generate an easy-to-type unique passphrase"""
+    # Use only letters and numbers, avoiding confusing characters
+    alphabet = string.ascii_uppercase + string.digits
+    # Remove confusing characters: 0, O, 1, I, L
+    alphabet = alphabet.replace('0', '').replace('O', '').replace('1', '').replace('I', '').replace('L', '')
+
+    while True:
+        passphrase = ''.join(secrets.choice(alphabet) for _ in range(length))
+        # Ensure it's not all the same character
+        if len(set(passphrase)) > 1:
+            return passphrase
+
+def generate_pin_code():
+    """Generate a 4-digit PIN code"""
+    return ''.join(secrets.choice(string.digits) for _ in range(4))
+
+def generate_tmp_user(first_name: str):
+    return f"student_{first_name.lower()}_{int(time.time())}"
