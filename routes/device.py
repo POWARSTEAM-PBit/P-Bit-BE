@@ -12,7 +12,7 @@ class AddDeviceManf(BaseModel):
 router = APIRouter(prefix="/device")
 
 @router.post("/add/manf", tags=["device"], status_code=status.HTTP_201_CREATED)
-async def create_class(
+async def create_device(
     payload: AddDeviceManf,
     db: Session = Depends(get_db)
 ):
