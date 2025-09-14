@@ -53,7 +53,7 @@ class ClassMember(Base):
     user = relationship("User", back_populates="class_memberships")
 class Device(Base):
     __tablename__ = "device"
-    mac_addr = Column(String(6), primary_key=True)
+    mac_addr = Column(String(12), primary_key=True)
 
     # Relationship to Data
     data_entries = relationship("Data", back_populates="device_obj", cascade="all, delete-orphan")

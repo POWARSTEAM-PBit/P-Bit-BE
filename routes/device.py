@@ -12,10 +12,10 @@ ALLOWED_TYPES = ['ph', 'moisture']
 ValidTypes = Literal[*ALLOWED_TYPES]
 
 class AddDeviceManf(BaseModel):
-    mac_addr: str = Field(min_length=6, max_length=6)  # For example, MAC address of exact 17 chars
+    mac_addr: str = Field(min_length=12, max_length=12)  # For example, MAC address of exact 17 chars
 
 class AddDeviceData(BaseModel):
-    mac_addr: str = Field(min_length=6, max_length=6)  # For example, MAC address of exact 17 chars
+    mac_addr: str = Field(min_length=12, max_length=12)  # For example, MAC address of exact 17 chars
     type: ValidTypes = Field(...)
     value: float = Field(...)
 
@@ -61,7 +61,7 @@ async def create_device(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-@router.post("/add/env", tags=["device"], status_code=status.HTTP_201_CREATED)
+@router.post("/publish/env", tags=["device"], status_code=status.HTTP_201_CREATED)
 async def publish_data(
     payload: AddDeviceData,
     db: Session = Depends(get_db)
