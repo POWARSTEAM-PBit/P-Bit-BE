@@ -1,10 +1,8 @@
-from sqlalchemy import Column, String, Enum, ForeignKey, DateTime, Text, Boolean, Integer
+from sqlalchemy import Column, String, Enum, ForeignKey, DateTime, Text, Boolean, Integer, Float
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from db.init_engine import Base
 import enum
-import secrets
-import string
 
 class UserType(str, enum.Enum):
     STUDENT = "student"
@@ -25,6 +23,7 @@ class User(Base):
     owned_classes = relationship("Class", back_populates="owner")
     class_memberships = relationship("ClassMember", back_populates="user")
 
+# Class model
 class Class(Base):
     __tablename__ = "class"
 
@@ -52,3 +51,20 @@ class ClassMember(Base):
     # Relationships
     class_obj = relationship("Class", back_populates="members")
     user = relationship("User", back_populates="class_memberships")
+class Device(Base):
+    __tablename__ = "device"
+    mac_addr = Column(String(12), primary_key=True)
+
+    # Relationship to Data
+    data_entries = relationship("Data", back_populates="device_obj", cascade="all, delete-orphan")
+class Data(Base):
+    __tablename__ = "data"
+    
+    entry_id = Column(Integer, autoincrement=True, primary_key=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    type = Column(String(32), nullable=False)
+    value = Column(Float, nullable=False)
+    mac_addr = Column(String(6), ForeignKey("device.mac_addr"), nullable=False)
+
+    # Relationship
+    device_obj = relationship("Device", back_populates="data_entries")
