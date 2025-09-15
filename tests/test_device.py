@@ -212,7 +212,10 @@ def test_data_publish_invalid_value_type(client, test_device):
     assert response.status_code == 422
 
 def test_device_linking_with_fixture_user(client, test_teacher, test_device, test_class):
-
+    """
+    Test successful linking of a device to a class by a registered teacher 
+    who is a member of the class.
+    """
     register_resp = client.post(
         "/user/register",
         json={
@@ -254,6 +257,10 @@ def test_device_linking_with_fixture_user(client, test_teacher, test_device, tes
 
 
 def test_link_nonexistent_device(client, test_teacher, test_class):
+    """
+    Test linking a non-existent device (invalid MAC address) to a class.
+    Should return 404 Not Found.
+    """
     client.post("/user/register", json={
         "first_name": test_teacher.first_name,
         "last_name": test_teacher.last_name,
@@ -282,6 +289,10 @@ def test_link_nonexistent_device(client, test_teacher, test_class):
     assert "does not exist" in response.json()["message"]
 
 def test_link_device_to_nonexistent_class(client, test_teacher, test_device):
+    """
+    Test linking a valid device to a class that does not exist.
+    Should return 404 Not Found.
+    """
     client.post("/user/register", json={
         "first_name": test_teacher.first_name,
         "last_name": test_teacher.last_name,
@@ -308,6 +319,11 @@ def test_link_device_to_nonexistent_class(client, test_teacher, test_device):
     assert "Class not found" in response.json()["message"]
 
 def test_unauthorized_user_cannot_link_device(client, test_student, test_device, test_class):
+    """
+    Test that a student who is neither a member nor the owner of a class 
+    cannot link a device to that class.
+    Should return 403 Forbidden.
+    """
     # Register student (not owner or member)
     client.post("/user/register", json={
         "first_name": test_student.first_name,
@@ -336,7 +352,11 @@ def test_unauthorized_user_cannot_link_device(client, test_student, test_device,
 
 
 def test_duplicate_device_linking(client, test_teacher, test_device, test_class):
-    # Register and login teacher
+    """
+    Test that attempting to link a device to a class it's already linked to 
+    returns a 409 Conflict response.
+    """
+    
     client.post("/user/register", json={
         "first_name": test_teacher.first_name,
         "last_name": test_teacher.last_name,
