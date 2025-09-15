@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 import routes.user as user
 import routes.class_management as class_management
+import routes.device as device
 from fastapi.middleware.cors import CORSMiddleware
 
 # Initialize database tables
@@ -42,6 +43,7 @@ app.add_middleware(
 
 app.include_router(user.router)
 app.include_router(class_management.router)
+app.include_router(device.router)
 
 @app.get("/")
 def read_root():
