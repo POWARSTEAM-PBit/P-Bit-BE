@@ -103,16 +103,27 @@ async def link_device_to_user(
         device_name=None
     )
 
-    db.add(new_class_device)
-    db.commit()
+    try:
+        db.add(new_class_device)
+        db.commit()
 
-    return JSONResponse(
-        content=api_resp(
-            success=True,
-            message=f"Device {payload.mac_addr} successfully linked to class {payload.class_id}"
-        ).dict(),
-        status_code=status.HTTP_201_CREATED
-    )
+        return JSONResponse(
+            content=api_resp(
+                success=True,
+                message=f"Device {payload.mac_addr} successfully linked to class {payload.class_id}"
+            ).dict(),
+            status_code=status.HTTP_201_CREATED
+        )
+    except Exception as e:
+        db.rollback()
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message=f"Failed to create device {e}", 
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 @router.post("/add/manf", tags=["device"], status_code=status.HTTP_201_CREATED)
 async def create_device(
