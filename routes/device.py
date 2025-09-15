@@ -7,6 +7,7 @@ from db import db_models
 from utils import api_resp, error_resp
 from typing import Literal
 from datetime import datetime, timezone
+from middleware import get_current_user
 
 ALLOWED_TYPES = ['ph', 'moisture']
 ValidTypes = Literal[*ALLOWED_TYPES]
@@ -19,7 +20,99 @@ class AddDeviceData(BaseModel):
     type: ValidTypes = Field(...)
     value: float = Field(...)
 
+class AddDeviceUser(BaseModel):
+    mac_addr: str = Field(min_length=12, max_length=12)  # For example, MAC address of exact 17 chars
+    class_id: str
+
 router = APIRouter(prefix="/device")
+
+
+@router.post("/add/class", tags=["device"], status_code=status.HTTP_201_CREATED)
+async def link_device_to_user(
+    payload: AddDeviceUser,
+    current_user: db_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Links an existing device to a class if the current user is a member or owner of that class.
+    """
+
+    device = db.query(db_models.Device).filter(
+        db_models.Device.mac_addr == payload.mac_addr
+    ).first()
+
+    if not device:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message=f"Device with MAC {payload.mac_addr} does not exist.",
+                error=error_resp(code=status.HTTP_404_NOT_FOUND),
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    
+    class_obj = db.query(db_models.Class).filter_by(
+        id=payload.class_id
+    ).first()
+
+    if not class_obj:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Class not found.",
+                error=error_resp(code=status.HTTP_404_NOT_FOUND)
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    
+    is_member = db.query(db_models.ClassMember).filter_by(
+        class_id=payload.class_id,
+        user_id=current_user.user_id
+    ).first()
+
+    is_owner = class_obj.owner_id == current_user.user_id
+
+    if not (is_member or is_owner):
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="You are not authorized to add a device to this class.",
+                error=error_resp(code=status.HTTP_403_FORBIDDEN)
+            ).dict(),
+            status_code=status.HTTP_403_FORBIDDEN
+        )
+    
+    existing_link = db.query(db_models.ClassDevice).filter_by(
+        mac_addr=payload.mac_addr,
+        class_id=payload.class_id
+    ).first()
+
+    if existing_link:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Device is already linked to this class.",
+                error=error_resp(code=status.HTTP_409_CONFLICT)
+            ).dict(),
+            status_code=status.HTTP_409_CONFLICT
+        )
+    
+    new_class_device = db_models.ClassDevice(
+        mac_addr=payload.mac_addr,
+        class_id=payload.class_id,
+        device_name=None
+    )
+
+    db.add(new_class_device)
+    db.commit()
+
+    return JSONResponse(
+        content=api_resp(
+            success=True,
+            message=f"Device {payload.mac_addr} successfully linked to class {payload.class_id}"
+        ).dict(),
+        status_code=status.HTTP_201_CREATED
+    )
 
 @router.post("/add/manf", tags=["device"], status_code=status.HTTP_201_CREATED)
 async def create_device(

@@ -1,7 +1,9 @@
 import pytest
-from db.db_models import Device
+from db.db_models import Device, Class, User
 import secrets
-
+import uuid
+from passlib.hash import bcrypt
+from datetime import datetime
 
 def generate_esp32_mac():
     """
@@ -27,6 +29,61 @@ def test_device(db):
     db.commit()
     db.refresh(device_to_add)
     return device_to_add
+
+@pytest.fixture
+def test_class(db):
+    """
+    Fixture to create a test class and add it to the database.
+    """
+    class_to_add = Class(
+        id=str(uuid.uuid4()),
+        name="Test Class",
+        subject="Test Subject",
+        description="For testing",
+        passphrase="testpass123",
+        owner_id="test_teacher"
+    )
+    db.add(class_to_add)
+    db.commit()
+    db.refresh(class_to_add)
+    return class_to_add
+
+@pytest.fixture
+def test_teacher(db):
+    """
+    Fixture to create a teacher user directly in the database.
+    """
+    unique_email = f"teacher_{uuid.uuid4().hex[:6]}@example.com"
+    password = "MyCoolPassword##"
+
+    teacher = User(
+        user_id=unique_email,
+        first_name="Test",
+        last_name="Teacher",
+        password=password,
+        user_type="teacher",
+    )
+
+    return teacher
+
+
+@pytest.fixture
+def test_student(db):
+    """
+    Fixture to create a student user directly in the database.
+    """
+    unique_username = f"student_{uuid.uuid4().hex[:6]}"
+    password = "MyCoolPassword##"
+
+    student = User(
+        user_id=unique_username,
+        first_name="Test",
+        last_name="Student",
+        password=password,
+        user_type="student",
+    )
+    
+    return student
 
 
 def test_device_add(client):
@@ -153,3 +210,166 @@ def test_data_publish_invalid_value_type(client, test_device):
     )
 
     assert response.status_code == 422
+
+def test_device_linking_with_fixture_user(client, test_teacher, test_device, test_class):
+
+    register_resp = client.post(
+        "/user/register",
+        json={
+            "first_name": test_teacher.first_name,
+            "last_name": test_teacher.last_name,
+            "password": test_teacher.password,
+            "user_id": test_teacher.user_id,
+            "user_type": test_teacher.user_type
+        }
+    )
+
+    assert register_resp.status_code == 201
+    
+    login_resp = client.post("/user/login", data={
+        "username": test_teacher.user_id,
+        "password": test_teacher.password
+    })
+
+    assert login_resp.status_code == 200
+    
+    token = login_resp.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    join_resp = client.post(
+        "/class/join", 
+        json={
+            "passphrase": test_class.passphrase
+        }, 
+        headers=headers)
+    
+    assert join_resp.status_code == 200
+
+    response = client.post("/device/add/class", json={
+        "mac_addr": test_device.mac_addr,
+        "class_id": test_class.id
+    }, headers=headers) ##add token to request
+
+    assert response.status_code == 201
+
+
+def test_link_nonexistent_device(client, test_teacher, test_class):
+    client.post("/user/register", json={
+        "first_name": test_teacher.first_name,
+        "last_name": test_teacher.last_name,
+        "password": test_teacher.password,
+        "user_id": test_teacher.user_id,
+        "user_type": test_teacher.user_type
+    })
+
+    login_resp = client.post("/user/login", data={
+        "username": test_teacher.user_id,
+        "password": test_teacher.password
+    })
+    token = login_resp.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    client.post("/class/join", json={
+        "passphrase": test_class.passphrase
+    }, headers=headers)
+
+    response = client.post("/device/add/class", json={
+        "mac_addr": "djie3rtre323",  # Not in DB
+        "class_id": test_class.id
+    }, headers=headers)
+
+    assert response.status_code == 404
+    assert "does not exist" in response.json()["message"]
+
+def test_link_device_to_nonexistent_class(client, test_teacher, test_device):
+    client.post("/user/register", json={
+        "first_name": test_teacher.first_name,
+        "last_name": test_teacher.last_name,
+        "password": test_teacher.password,
+        "user_id": test_teacher.user_id,
+        "user_type": test_teacher.user_type
+    })
+
+    login_resp = client.post("/user/login", data={
+        "username": test_teacher.user_id,
+        "password": test_teacher.password
+    })
+    token = login_resp.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    fake_class_id = str(uuid.uuid4())
+
+    response = client.post("/device/add/class", json={
+        "mac_addr": test_device.mac_addr,
+        "class_id": fake_class_id
+    }, headers=headers)
+
+    assert response.status_code == 404
+    assert "Class not found" in response.json()["message"]
+
+def test_unauthorized_user_cannot_link_device(client, test_student, test_device, test_class):
+    # Register student (not owner or member)
+    client.post("/user/register", json={
+        "first_name": test_student.first_name,
+        "last_name": test_student.last_name,
+        "password": test_student.password,
+        "user_id": test_student.user_id,
+        "user_type": test_student.user_type
+    })
+
+    login_resp = client.post("/user/login", data={
+        "username": test_student.user_id,
+        "password": test_student.password
+    })
+
+    token = login_resp.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Student has not joined the class
+    response = client.post("/device/add/class", json={
+        "mac_addr": test_device.mac_addr,
+        "class_id": test_class.id
+    }, headers=headers)
+
+    assert response.status_code == 403
+    assert "not authorized" in response.json()["message"]
+
+
+def test_duplicate_device_linking(client, test_teacher, test_device, test_class):
+    # Register and login teacher
+    client.post("/user/register", json={
+        "first_name": test_teacher.first_name,
+        "last_name": test_teacher.last_name,
+        "password": test_teacher.password,
+        "user_id": test_teacher.user_id,
+        "user_type": test_teacher.user_type
+    })
+
+    login_resp = client.post("/user/login", data={
+        "username": test_teacher.user_id,
+        "password": test_teacher.password
+    })
+
+    token = login_resp.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Join class
+    client.post("/class/join", json={
+        "passphrase": test_class.passphrase
+    }, headers=headers)
+
+    # First successful link
+    response1 = client.post("/device/add/class", json={
+        "mac_addr": test_device.mac_addr,
+        "class_id": test_class.id
+    }, headers=headers)
+    assert response1.status_code == 201
+
+    # Duplicate link attempt
+    response2 = client.post("/device/add/class", json={
+        "mac_addr": test_device.mac_addr,
+        "class_id": test_class.id
+    }, headers=headers)
+
+    assert response2.status_code == 409
+    assert "already linked" in response2.json()["message"]
