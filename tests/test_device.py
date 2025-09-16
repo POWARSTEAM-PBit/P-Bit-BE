@@ -22,7 +22,8 @@ def test_device(db):
     Fixture to insert a device into the database before a test.
     Used for testing data publishing to a known device.
     """
-    mac = generate_esp32_mac()
+    # mac = generate_esp32_mac()
+    mac = "AB23E563C08B"
     device_to_add = Device(mac_addr=mac)
 
     db.add(device_to_add)
@@ -250,7 +251,8 @@ def test_device_linking_with_fixture_user(client, test_teacher, test_device, tes
 
     response = client.post("/device/add/class", json={
         "mac_addr": test_device.mac_addr,
-        "class_id": test_class.id
+        "class_id": test_class.id,
+        "device_name": "name"
     }, headers=headers) ##add token to request
 
     assert response.status_code == 201
@@ -282,7 +284,8 @@ def test_link_nonexistent_device(client, test_teacher, test_class):
 
     response = client.post("/device/add/class", json={
         "mac_addr": "djie3rtre323",  # Not in DB
-        "class_id": test_class.id
+        "class_id": test_class.id,
+        "device_name": "name"
     }, headers=headers)
 
     assert response.status_code == 404
@@ -312,7 +315,8 @@ def test_link_device_to_nonexistent_class(client, test_teacher, test_device):
 
     response = client.post("/device/add/class", json={
         "mac_addr": test_device.mac_addr,
-        "class_id": fake_class_id
+        "class_id": fake_class_id,
+        "device_name": "name"
     }, headers=headers)
 
     assert response.status_code == 404
@@ -344,7 +348,8 @@ def test_unauthorized_user_cannot_link_device(client, test_student, test_device,
     # Student has not joined the class
     response = client.post("/device/add/class", json={
         "mac_addr": test_device.mac_addr,
-        "class_id": test_class.id
+        "class_id": test_class.id,
+        "device_name": "name"
     }, headers=headers)
 
     assert response.status_code == 403
@@ -381,14 +386,16 @@ def test_duplicate_device_linking(client, test_teacher, test_device, test_class)
     # First successful link
     response1 = client.post("/device/add/class", json={
         "mac_addr": test_device.mac_addr,
-        "class_id": test_class.id
+        "class_id": test_class.id,
+        "device_name": "name"
     }, headers=headers)
     assert response1.status_code == 201
 
     # Duplicate link attempt
     response2 = client.post("/device/add/class", json={
         "mac_addr": test_device.mac_addr,
-        "class_id": test_class.id
+        "class_id": test_class.id,
+        "device_name": "name"
     }, headers=headers)
 
     assert response2.status_code == 409
