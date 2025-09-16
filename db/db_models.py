@@ -55,7 +55,7 @@ class ClassMember(Base):
     user = relationship("User", back_populates="class_memberships")
 
 class ClassDevice(Base):
-    __tablename__ = "class_device"
+    __tablename__ = "device_class"
     id = Column(Integer, primary_key=True, autoincrement=True)
     mac_addr = Column(String(12))
     device_name = Column(String(64), nullable=True)
@@ -76,7 +76,7 @@ class Data(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     type = Column(String(32), nullable=False)
     value = Column(Float, nullable=False)
-    mac_addr = Column(String(6), ForeignKey("device.mac_addr"), nullable=False)
+    mac_addr = Column(String(12), ForeignKey("device.mac_addr"), nullable=False)
 
     # Relationship
     device_obj = relationship("Device", back_populates="data_entries")

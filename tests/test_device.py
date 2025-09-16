@@ -397,7 +397,7 @@ def test_duplicate_device_linking(client, test_teacher, test_device, test_class)
 
 def test_get_devices(client, test_class, test_student):
     """
-
+    
     """
 
     client.post("/user/register", json={

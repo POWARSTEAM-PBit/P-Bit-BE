@@ -40,6 +40,9 @@ async def get_all_devices_class(
     The following endpoint get's all devices belonging to the class.
     """
 
+    print("Class ID:", class_id, type(class_id))
+
+
     does_class_exist = db.query(db_models.Class).filter_by(
         id=class_id
     ).first()
@@ -75,12 +78,17 @@ async def get_all_devices_class(
         class_id=class_id
     ).all()
 
+    
+
     devices = []
     for device in class_devices:
         devices.append({
             "mac_addr": device.mac_addr,
             "device_name": device.device_name
         })
+
+    if len(devices) == 0:
+        print("empty")
     
     return JSONResponse(
         content=api_resp(
