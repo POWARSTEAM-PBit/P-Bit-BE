@@ -39,6 +39,8 @@ class Class(Base):
     # Relationships
     owner = relationship("User", back_populates="owned_classes")
     members = relationship("ClassMember", back_populates="class_obj", cascade="all, delete-orphan")
+    devices = relationship("ClassDevice", back_populates="class_", cascade="all, delete-orphan")
+
 
 class ClassMember(Base):
     __tablename__ = "class_member"
@@ -51,6 +53,16 @@ class ClassMember(Base):
     # Relationships
     class_obj = relationship("Class", back_populates="members")
     user = relationship("User", back_populates="class_memberships")
+
+class ClassDevice(Base):
+    __tablename__ = "device_class"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    mac_addr = Column(String(12))
+    device_name = Column(String(64), nullable=True)
+    class_id = Column(String(36), ForeignKey("class.id"), nullable=False)
+    class_ = relationship("Class", back_populates="devices")
+
+
 class Device(Base):
     __tablename__ = "device"
     mac_addr = Column(String(12), primary_key=True)
@@ -64,7 +76,7 @@ class Data(Base):
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     type = Column(String(32), nullable=False)
     value = Column(Float, nullable=False)
-    mac_addr = Column(String(6), ForeignKey("device.mac_addr"), nullable=False)
+    mac_addr = Column(String(12), ForeignKey("device.mac_addr"), nullable=False)
 
     # Relationship
     device_obj = relationship("Device", back_populates="data_entries")
