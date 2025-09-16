@@ -110,15 +110,9 @@ async def login(user: OAuth2PasswordRequestForm = Depends(), db: Session = Depen
         db_models.User.user_id == user_id,
     ).first()
 
-    if not db_user:
+    if not db_user or not verify_password(user.password, db_user.password):
         return JSONResponse(
-            content=api_resp(success=False, message="User does not exist", error=error_resp(code=status.HTTP_404_NOT_FOUND)).dict(),
-            status_code=status.HTTP_404_NOT_FOUND,
-        )
-
-    if not verify_password(user.password, db_user.password):
-        return JSONResponse(
-            content=api_resp(success=False, message="Incorrect password", error=error_resp(code=status.HTTP_401_UNAUTHORIZED)).dict(),
+            content=api_resp(success=False, message="The username or password you entered is incorrect, Please try again.", error=error_resp(code=status.HTTP_401_UNAUTHORIZED)).dict(),
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     
