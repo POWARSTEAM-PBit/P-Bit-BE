@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 from email_validator import validate_email, EmailNotValidError
 import bcrypt
-from db.init_engine import get_db
+from db.init_engine import get_db, engine
 from db import db_models
 from utils import api_resp, error_resp
 from utils import REGISTER_SUCCESS_RESPONSE, INVALID_EMAIL_REGISTER_RESPONSE, INVALID_USER_TYPE_REGISTER_RESPONSE, VALIDATION_ERROR_REGISTER_RESPONSES, INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
@@ -12,7 +12,7 @@ from utils import LOGIN_SUCCESS_RESPONSE, INVALID_EMAIL_RESPONSE, UNAUTHORIZED_R
 from middleware import create_access_token, get_current_user
 from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
-from constants import ACCESS_TOKEN_EXPIRE_MINUTES
+from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 class user_register(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=50)
@@ -110,9 +110,15 @@ async def login(user: OAuth2PasswordRequestForm = Depends(), db: Session = Depen
         db_models.User.user_id == user_id,
     ).first()
 
-    if not db_user or not verify_password(user.password, db_user.password):
+    if not db_user:
         return JSONResponse(
-            content=api_resp(success=False, message="The username or password you entered is incorrect, Please try again.", error=error_resp(code=status.HTTP_401_UNAUTHORIZED)).dict(),
+            content=api_resp(success=False, message="User does not exist", error=error_resp(code=status.HTTP_404_NOT_FOUND)).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    if not verify_password(user.password, db_user.password):
+        return JSONResponse(
+            content=api_resp(success=False, message="Incorrect password", error=error_resp(code=status.HTTP_401_UNAUTHORIZED)).dict(),
             status_code=status.HTTP_401_UNAUTHORIZED,
         )
     
@@ -134,3 +140,4 @@ async def read_profile(current_user: db_models.User = Depends(get_current_user))
         "last_name": current_user.last_name,
         "user_type": current_user.user_type.value,
     }
+

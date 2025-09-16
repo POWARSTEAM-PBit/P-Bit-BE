@@ -8,7 +8,7 @@ from typing import Optional
 
 from db import db_models
 from db.init_engine import get_db
-from constants import SECRET_KEY, ALGORITHM
+from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/user/login")
 
