@@ -393,3 +393,43 @@ def test_duplicate_device_linking(client, test_teacher, test_device, test_class)
 
     assert response2.status_code == 409
     assert "already linked" in response2.json()["message"]
+
+
+def test_get_devices(client, test_class, test_student):
+    """
+
+    """
+
+    client.post("/user/register", json={
+        "first_name": test_student.first_name,
+        "last_name": test_student.last_name,
+        "password": test_student.password,
+        "user_id": test_student.user_id,
+        "user_type": test_student.user_type
+    })
+
+    login_resp = client.post("/user/login", data={
+        "username": test_student.user_id,
+        "password": test_student.password
+    })
+
+    token = login_resp.json()["data"]["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+
+    # Student joins the class with passphrase only (logged-in)
+    join_payload = {
+        "passphrase": test_class.passphrase
+    }
+    join_resp = client.post("/class/join", json=join_payload, headers=headers)
+    assert join_resp.status_code == 200
+
+    response = client.get(
+        f"/device/get/{test_class.id}",
+        headers=headers)
+    
+    assert response.status_code == 200
+
+    data = response.json().get("data")
+
+    assert data is not None
