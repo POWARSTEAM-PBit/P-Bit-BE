@@ -5,10 +5,7 @@ import routes.device as device
 import routes.group as group
 import routes.data as data
 from fastapi.middleware.cors import CORSMiddleware
-from db.init_engine import init_db
 
-# Initialize database tables
-init_db()
 
 app = FastAPI()
 
