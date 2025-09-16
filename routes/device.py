@@ -22,10 +22,74 @@ class AddDeviceData(BaseModel):
 
 class AddDeviceUser(BaseModel):
     mac_addr: str = Field(min_length=12, max_length=12)  # For example, MAC address of exact 17 chars
+    device_name: str
+    class_id: str
+class GetDevicesClass(BaseModel):
     class_id: str
 
 router = APIRouter(prefix="/device")
 
+
+@router.get("/get/{class_id}", tags=["device"], status_code=status.HTTP_200_OK)
+async def get_all_devices_class(
+    class_id: str,
+    current_user: db_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db) 
+):
+    """
+    The following endpoint get's all devices belonging to the class.
+    """
+
+    does_class_exist = db.query(db_models.Class).filter_by(
+        id=class_id
+    ).first()
+
+    if not does_class_exist:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Class not found.",
+                error=error_resp(code=status.HTTP_404_NOT_FOUND)
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND
+        )
+    
+    is_member = db.query(db_models.ClassMember).filter_by(
+        class_id=class_id,
+        user_id=current_user.user_id
+    ).first()
+
+    is_owner = does_class_exist.owner_id == current_user.user_id
+
+    if not (is_member or is_owner):
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message=f"You are not authorized to view the following classes devices: {does_class_exist.id}.",
+                error=error_resp(code=status.HTTP_403_FORBIDDEN)
+            ).dict(),
+            status_code=status.HTTP_403_FORBIDDEN
+        )
+    
+    class_devices = db.query(db_models.ClassDevice).filter_by(
+        class_id=class_id
+    ).all()
+
+    devices = []
+    for device in class_devices:
+        devices.append({
+            "mac_addr": device.mac_addr,
+            "device_name": device.device_name
+        })
+    
+    return JSONResponse(
+        content=api_resp(
+            success=True, 
+            message="Owned classes retrieved successfully", 
+            data=devices
+        ).dict(),
+        status_code=status.HTTP_200_OK,
+    )
 
 @router.post("/add/class", tags=["device"], status_code=status.HTTP_201_CREATED)
 async def link_device_to_user(
@@ -100,7 +164,7 @@ async def link_device_to_user(
     new_class_device = db_models.ClassDevice(
         mac_addr=payload.mac_addr,
         class_id=payload.class_id,
-        device_name=None
+        device_name=payload.device_name
     )
 
     try:
