@@ -16,6 +16,7 @@ class User(Base):
     last_name = Column(String(32), nullable=False)
     password = Column(String(255), nullable=False)
     user_type = Column(Enum(UserType), nullable=False)
+    school = Column(String(255), nullable=True)  # School name for teachers
     pin_code = Column(String(4), nullable=True)  # PIN for anonymous students
     pin_reset_required = Column(Boolean, default=False)  # Flag to force PIN reset
 
@@ -43,7 +44,7 @@ class ClassMember(Base):
     __tablename__ = "class_member"
 
     id = Column(String(36), primary_key=True)  # UUID
-    class_id = Column(String(36), ForeignKey("class.id"), nullable=False)
+    class_id = Column(String(36), ForeignKey("class.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(String(64), ForeignKey("user.user_id"), nullable=False)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -55,7 +56,7 @@ class AnonymousStudent(Base):
     __tablename__ = "anonymous_students"
 
     student_id = Column(String(255), primary_key=True)
-    class_id = Column(String(36), ForeignKey("class.id"), nullable=False)
+    class_id = Column(String(36), ForeignKey("class.id", ondelete="CASCADE"), nullable=False)
     first_name = Column(String(50), nullable=False)
     pin_code = Column(String(4), nullable=False)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -99,7 +100,7 @@ class DeviceAssignment(Base):
 
     id = Column(String(36), primary_key=True)  # UUID
     device_id = Column(String(36), ForeignKey("devices.id"), nullable=False)
-    classroom_id = Column(String(36), ForeignKey("class.id"), nullable=False)
+    classroom_id = Column(String(36), ForeignKey("class.id", ondelete="CASCADE"), nullable=False)
     assignment_type = Column(String(20), nullable=False)  # 'unassigned', 'student', 'group'
     assignment_id = Column(String(36), nullable=True)  # student_id or group_id
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -117,7 +118,7 @@ class Group(Base):
     __tablename__ = "groups"
 
     id = Column(String(36), primary_key=True)  # UUID
-    classroom_id = Column(String(36), ForeignKey("class.id"), nullable=False)
+    classroom_id = Column(String(36), ForeignKey("class.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(100), nullable=False)
     icon = Column(String(10), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -150,10 +151,10 @@ class DeviceData(Base):
     id = Column(String(36), primary_key=True)  # UUID
     device_id = Column(String(36), ForeignKey("devices.id"), nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)
-    temperature = Column(Numeric(5, 2), nullable=True)
-    moisture = Column(Numeric(5, 2), nullable=True)
-    light = Column(Numeric(8, 2), nullable=True)
-    sound = Column(Numeric(5, 2), nullable=True)
+    temperature = Column(Numeric(5, 2), nullable=True)  # Temperature in Celsius
+    humidity = Column(Numeric(5, 2), nullable=True)    # Humidity percentage
+    light = Column(Numeric(8, 2), nullable=True)       # Light level in lux
+    sound = Column(Numeric(5, 2), nullable=True)       # Sound level in dB
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships

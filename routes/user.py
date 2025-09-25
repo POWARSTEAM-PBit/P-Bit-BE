@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, status, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import distinct
 from pydantic import BaseModel, Field
 from email_validator import validate_email, EmailNotValidError
 import bcrypt
-from db.init_engine import get_db, engine
+from db.init_engine import get_db
 from db import db_models
 from utils import api_resp, error_resp
 from utils import REGISTER_SUCCESS_RESPONSE, INVALID_EMAIL_REGISTER_RESPONSE, INVALID_USER_TYPE_REGISTER_RESPONSE, VALIDATION_ERROR_REGISTER_RESPONSES, INTERNAL_SERVER_ERROR_REGISTER_RESPONSE
@@ -12,7 +13,7 @@ from utils import LOGIN_SUCCESS_RESPONSE, INVALID_EMAIL_RESPONSE, UNAUTHORIZED_R
 from middleware import create_access_token, get_current_user
 from datetime import timedelta
 from fastapi.security import OAuth2PasswordRequestForm
-from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from constants import ACCESS_TOKEN_EXPIRE_MINUTES
 
 class user_register(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=50)
@@ -20,6 +21,7 @@ class user_register(BaseModel):
     password: str = Field(..., min_length=1, max_length=128)
     user_id: str
     user_type: db_models.UserType
+    school: str = Field(None, max_length=255)  # Optional school field for teachers
 
 class user_login(BaseModel):
     user_id: str
@@ -79,13 +81,14 @@ async def register(payload: user_register, db: Session = Depends(get_db)):
         last_name=payload.last_name,
         password=hash_password(payload.password),
         user_type=payload.user_type,
+        school=payload.school if payload.user_type == db_models.UserType.TEACHER else None,
     )
 
     try:
         db.add(new_user)
         db.commit()
         db.refresh(new_user)
-    except Exception as e:
+    except Exception:
         db.rollback()
         return JSONResponse(
             content=api_resp(success=False, message="Failed to register", error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)).dict(),
@@ -139,5 +142,54 @@ async def read_profile(current_user: db_models.User = Depends(get_current_user))
         "first_name": current_user.first_name,
         "last_name": current_user.last_name,
         "user_type": current_user.user_type.value,
+        "school": current_user.school,
     }
+
+@router.get("/schools", tags=["user"], status_code=status.HTTP_200_OK)
+async def get_schools(
+    search: str = Query(None, description="Search term for school names"),
+    limit: int = Query(10, description="Maximum number of schools to return"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get list of existing schools for autocomplete functionality.
+    Returns schools that have been used by teachers during registration.
+    """
+    try:
+        # Base query to get distinct schools from teachers
+        query = db.query(distinct(db_models.User.school)).filter(
+            db_models.User.user_type == db_models.UserType.TEACHER,
+            db_models.User.school.isnot(None),
+            db_models.User.school != ""
+        )
+        
+        # Add search filter if provided
+        if search and search.strip():
+            search_term = f"%{search.strip()}%"
+            query = query.filter(db_models.User.school.like(search_term))
+        
+        # Execute query and get results
+        schools = query.limit(limit).all()
+        
+        # Extract school names from tuples
+        school_names = [school[0] for school in schools if school[0]]
+        
+        return JSONResponse(
+            content=api_resp(
+                success=True,
+                message="Schools retrieved successfully",
+                data={"schools": school_names}
+            ).dict(),
+            status_code=status.HTTP_200_OK,
+        )
+        
+    except Exception:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Failed to retrieve schools",
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
