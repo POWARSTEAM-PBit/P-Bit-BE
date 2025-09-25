@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, status, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 from pydantic import BaseModel, Field
 from typing import Optional
 import uuid
@@ -390,7 +391,6 @@ async def find_anonymous_user(
     if anonymous_student:
         # User found with correct name and PIN - update last_active and return success
         try:
-            from sqlalchemy.sql import func
             anonymous_student.last_active = func.now()
             db.commit()
             db.refresh(anonymous_student)
@@ -1007,6 +1007,93 @@ async def remove_student_from_class(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
+# Remove anonymous student from class (teacher only)
+@router.delete("/{class_id}/remove-anonymous-student/{student_id}", tags=["class"], status_code=status.HTTP_200_OK)
+async def remove_anonymous_student_from_class(
+    class_id: str,
+    student_id: str,
+    current_user: db_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Find the class
+    class_obj = db.query(db_models.Class).filter(
+        db_models.Class.id == class_id
+    ).first()
+    
+    if not class_obj:
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="Class not found", 
+                error=error_resp(code=status.HTTP_404_NOT_FOUND)
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    
+    # Check if user is the owner
+    if class_obj.owner_id != current_user.user_id:
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="Only the class owner can remove students", 
+                error=error_resp(code=status.HTTP_403_FORBIDDEN)
+            ).dict(),
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    
+    # Find the anonymous student
+    anonymous_student = db.query(db_models.AnonymousStudent).filter(
+        db_models.AnonymousStudent.student_id == student_id,
+        db_models.AnonymousStudent.class_id == class_id
+    ).first()
+    
+    if not anonymous_student:
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="Anonymous student not found", 
+                error=error_resp(code=status.HTTP_404_NOT_FOUND)
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    
+    try:
+        # Remove any group memberships first
+        group_memberships = db.query(db_models.GroupMembership).filter(
+            db_models.GroupMembership.student_id == student_id,
+            db_models.GroupMembership.student_type == "anonymous"
+        ).all()
+        
+        for membership in group_memberships:
+            db.delete(membership)
+        
+        # Remove the anonymous student
+        db.delete(anonymous_student)
+        db.commit()
+        
+        return JSONResponse(
+            content=api_resp(
+                success=True, 
+                message="Anonymous student removed from class successfully", 
+                data={
+                    "student_id": anonymous_student.student_id,
+                    "first_name": anonymous_student.first_name,
+                    "class_id": class_id
+                }
+            ).dict(),
+            status_code=status.HTTP_200_OK,
+        )
+    except Exception:
+        db.rollback()
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="Failed to remove anonymous student from class", 
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
 # Get classes owned by current user (teacher)
 @router.get("/owned", tags=["class"], status_code=status.HTTP_200_OK)
 async def get_owned_classes(
@@ -1221,6 +1308,262 @@ async def leave_class(
             content=api_resp(
                 success=False, 
                 message="Failed to leave class", 
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+# Get student-specific data (groups and devices) for a classroom
+@router.get("/{class_id}/student-data", tags=["class"], status_code=status.HTTP_200_OK)
+async def get_student_data(
+    class_id: str,
+    current_user: db_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Check if user is enrolled in the class
+    class_member = db.query(db_models.ClassMember).filter(
+        db_models.ClassMember.class_id == class_id,
+        db_models.ClassMember.user_id == current_user.user_id
+    ).first()
+    
+    if not class_member:
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="You are not enrolled in this class", 
+                error=error_resp(code=status.HTTP_403_FORBIDDEN)
+            ).dict(),
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+    
+    try:
+        # Get groups the student belongs to
+        student_groups = db.query(db_models.Group).join(
+            db_models.GroupMembership,
+            db_models.Group.id == db_models.GroupMembership.group_id
+        ).filter(
+            db_models.Group.classroom_id == class_id,
+            db_models.GroupMembership.student_id == current_user.user_id,
+            db_models.GroupMembership.student_type == "registered"
+        ).all()
+        
+        groups_data = []
+        for group in student_groups:
+            # Get devices assigned to this group
+            group_devices = db.query(db_models.Device).join(
+                db_models.DeviceAssignment,
+                db_models.Device.id == db_models.DeviceAssignment.device_id
+            ).filter(
+                db_models.DeviceAssignment.classroom_id == class_id,
+                db_models.DeviceAssignment.assignment_type == "group",
+                db_models.DeviceAssignment.assignment_id == group.id
+            ).all()
+            
+            group_devices_data = []
+            for device in group_devices:
+                group_devices_data.append({
+                    "id": device.id,
+                    "nickname": device.nickname,
+                    "mac_address": device.mac_address,
+                    "battery_level": device.battery_level,
+                    "is_active": device.is_active,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None
+                })
+            
+                groups_data.append({
+                    "id": group.id,
+                    "name": group.name,
+                    "icon": group.icon,
+                    "devices": group_devices_data
+                })
+            
+            # Get devices assigned directly to the student
+        student_devices = db.query(db_models.Device).join(
+            db_models.DeviceAssignment,
+            db_models.Device.id == db_models.DeviceAssignment.device_id
+        ).filter(
+            db_models.DeviceAssignment.classroom_id == class_id,
+            db_models.DeviceAssignment.assignment_type == "student",
+            db_models.DeviceAssignment.assignment_id == current_user.user_id
+        ).all()
+        
+        student_devices_data = []
+        for device in student_devices:
+            student_devices_data.append({
+                "id": device.id,
+                "nickname": device.nickname,
+                "mac_address": device.mac_address,
+                "battery_level": device.battery_level,
+                "is_active": device.is_active,
+                "last_seen": device.last_seen.isoformat() if device.last_seen else None
+            })
+        
+        # Get public devices (unassigned devices)
+        public_devices = db.query(db_models.Device).join(
+            db_models.DeviceAssignment,
+            db_models.Device.id == db_models.DeviceAssignment.device_id
+        ).filter(
+            db_models.DeviceAssignment.classroom_id == class_id,
+            db_models.DeviceAssignment.assignment_type == "unassigned"
+        ).all()
+        
+        public_devices_data = []
+        for device in public_devices:
+            public_devices_data.append({
+                "id": device.id,
+                "nickname": device.nickname,
+                "mac_address": device.mac_address,
+                "battery_level": device.battery_level,
+                "is_active": device.is_active,
+                "last_seen": device.last_seen.isoformat() if device.last_seen else None
+            })
+        
+        return JSONResponse(
+            content=api_resp(
+                success=True, 
+                message="Student data retrieved successfully", 
+                data={
+                    "groups": groups_data,
+                    "assigned_devices": student_devices_data,
+                    "public_devices": public_devices_data
+                }
+            ).dict(),
+            status_code=status.HTTP_200_OK,
+        )
+    except Exception:
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="Failed to retrieve student data", 
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+# Get student-specific data for anonymous students
+@router.get("/{class_id}/anonymous-student-data", tags=["class"], status_code=status.HTTP_200_OK)
+async def get_anonymous_student_data(
+    class_id: str,
+    first_name: str = Query(..., description="Student first name"),
+    pin_code: str = Query(..., description="Student PIN code"),
+    db: Session = Depends(get_db)
+):
+    # Find the anonymous student
+    anonymous_student = db.query(db_models.AnonymousStudent).filter(
+        db_models.AnonymousStudent.class_id == class_id,
+        db_models.AnonymousStudent.first_name == first_name,
+        db_models.AnonymousStudent.pin_code == pin_code
+    ).first()
+    
+    if not anonymous_student:
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="Anonymous student not found", 
+                error=error_resp(code=status.HTTP_404_NOT_FOUND)
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    
+    try:
+        # Get groups the anonymous student belongs to
+        student_groups = db.query(db_models.Group).join(
+            db_models.GroupMembership,
+            db_models.Group.id == db_models.GroupMembership.group_id
+        ).filter(
+            db_models.Group.classroom_id == class_id,
+            db_models.GroupMembership.student_id == anonymous_student.student_id,
+            db_models.GroupMembership.student_type == "anonymous"
+        ).all()
+        
+        groups_data = []
+        for group in student_groups:
+            # Get devices assigned to this group
+            group_devices = db.query(db_models.Device).join(
+                db_models.DeviceAssignment,
+                db_models.Device.id == db_models.DeviceAssignment.device_id
+            ).filter(
+                db_models.DeviceAssignment.classroom_id == class_id,
+                db_models.DeviceAssignment.assignment_type == "group",
+                db_models.DeviceAssignment.assignment_id == group.id
+            ).all()
+            
+            group_devices_data = []
+            for device in group_devices:
+                group_devices_data.append({
+                    "id": device.id,
+                    "nickname": device.nickname,
+                    "mac_address": device.mac_address,
+                    "battery_level": device.battery_level,
+                    "is_active": device.is_active,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None
+                })
+            
+            groups_data.append({
+                "id": group.id,
+                "name": group.name,
+                "icon": group.icon,
+                "devices": group_devices_data
+            })
+        
+        # Get devices assigned directly to the anonymous student
+        student_devices = db.query(db_models.Device).join(
+            db_models.DeviceAssignment,
+            db_models.Device.id == db_models.DeviceAssignment.device_id
+        ).filter(
+            db_models.DeviceAssignment.classroom_id == class_id,
+            db_models.DeviceAssignment.assignment_type == "student",
+            db_models.DeviceAssignment.assignment_id == anonymous_student.student_id
+        ).all()
+        
+        student_devices_data = []
+        for device in student_devices:
+            student_devices_data.append({
+                "id": device.id,
+                "nickname": device.nickname,
+                "mac_address": device.mac_address,
+                "battery_level": device.battery_level,
+                "is_active": device.is_active,
+                "last_seen": device.last_seen.isoformat() if device.last_seen else None
+            })
+        
+        # Get public devices (unassigned devices)
+        public_devices = db.query(db_models.Device).join(
+            db_models.DeviceAssignment,
+            db_models.Device.id == db_models.DeviceAssignment.device_id
+        ).filter(
+            db_models.DeviceAssignment.classroom_id == class_id,
+            db_models.DeviceAssignment.assignment_type == "unassigned"
+        ).all()
+        
+        public_devices_data = []
+        for device in public_devices:
+            public_devices_data.append({
+                "id": device.id,
+                "nickname": device.nickname,
+                "mac_address": device.mac_address,
+                "battery_level": device.battery_level,
+                "is_active": device.is_active,
+                "last_seen": device.last_seen.isoformat() if device.last_seen else None
+            })
+        
+        return JSONResponse(
+            content=api_resp(
+                success=True, 
+                message="Anonymous student data retrieved successfully", 
+                data={
+                    "groups": groups_data,
+                    "assigned_devices": student_devices_data,
+                    "public_devices": public_devices_data
+                }
+            ).dict(),
+            status_code=status.HTTP_200_OK,
+        )
+    except Exception:
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="Failed to retrieve anonymous student data", 
                 error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
