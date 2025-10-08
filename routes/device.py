@@ -14,8 +14,21 @@ from utils import (
     validate_mac_address, validate_nickname, validate_assignment_type
 )
 from middleware import get_current_user
+from sqlalchemy import func
+from typing import Optional
+from db.init_engine import get_db
+from db import db_models as m
 
-router = APIRouter(prefix="/device")
+router = APIRouter(prefix="/device", tags=["device"])
+
+
+# ------------------------------
+# Helpers
+# ------------------------------
+def api_resp(success: bool, message: str, data=None):
+    """Uniform API envelope."""
+    return {"success": success, "message": message, "data": data}
+
 
 # Pydantic models for request/response
 class DeviceRegister(BaseModel):
@@ -1337,3 +1350,134 @@ async def get_latest_device_data(
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
+def normalize_mac(raw: str) -> Optional[str]:
+    """
+    Normalize MAC address to a 12-char uppercase string without separators.
+    Accepts forms like: 'a1:b2:c3:d4:e5:f6', 'A1-B2-C3-D4-E5-F6', 'a1b2c3d4e5f6'.
+    Returns None if invalid.
+    """
+    if not raw:
+        return None
+    s = raw.replace(":", "").replace("-", "").strip().upper()
+    if len(s) != 12 or not s.isalnum():
+        return None
+    return s
+
+
+# ------------------------------
+# Endpoints
+# ------------------------------
+@router.get("/data", status_code=status.HTTP_200_OK)
+def get_device_data(
+    mac: str = Query(..., description="Device MAC (any format, e.g. A1:B2:C3:D4:E5:F6)"),
+    limit: int = Query(500, ge=1, le=5000, description="Max number of points"),
+    type: Optional[str] = Query(None, description="Optional sensor type filter, e.g. temp"),
+    order: str = Query("asc", pattern="^(asc|desc)$", description="Sort by timestamp"),
+    db: Session = Depends(get_db),
+):
+    """
+    Return time-series data points for a device.
+    - Normalizes the MAC
+    - Optional filter by 'type'
+    - Sort by timestamp ASC/DESC
+    """
+    mac_norm = normalize_mac(mac)
+    if mac_norm is None:
+        return JSONResponse(
+            api_resp(False, "Invalid MAC address format", data=[]),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # (Optional) ensure device exists; if not, return empty data
+    exists = db.query(m.Device).filter(m.Device.mac_addr == mac_norm).first()
+    if not exists:
+        return JSONResponse(api_resp(True, "Device not found", data=[]))
+
+    q = (
+        db.query(m.Data.timestamp, m.Data.type, m.Data.value)
+        .filter(m.Data.mac_addr == mac_norm)
+    )
+    if type:
+        q = q.filter(m.Data.type == type)
+
+    q = q.order_by(m.Data.timestamp.desc() if order == "desc" else m.Data.timestamp.asc())
+    rows = q.limit(limit).all()
+
+    series = [
+        {
+            "ts": r.timestamp.isoformat() if r.timestamp else None,
+            "type": r.type,
+            "value": float(r.value) if r.value is not None else None,
+        }
+        for r in rows
+    ]
+
+    return JSONResponse(api_resp(True, "ok", series))
+
+
+@router.get("/metrics", status_code=status.HTTP_200_OK)
+def get_metrics(db: Session = Depends(get_db)):
+    """
+    Aggregate metrics per (device, type):
+    - count, min, max, avg, latest {value, ts}
+    """
+    # base stats per (mac, type)
+    stats = (
+        db.query(
+            m.Data.mac_addr,
+            m.Data.type,
+            func.count().label("count"),
+            func.min(m.Data.value).label("min"),
+            func.max(m.Data.value).label("max"),
+            func.avg(m.Data.value).label("avg"),
+        )
+        .group_by(m.Data.mac_addr, m.Data.type)
+        .all()
+    )
+
+    # latest value per (mac, type)
+    latest_sub = (
+        db.query(
+            m.Data.mac_addr,
+            m.Data.type,
+            func.max(m.Data.timestamp).label("max_ts"),
+        )
+        .group_by(m.Data.mac_addr, m.Data.type)
+        .subquery()
+    )
+
+    latest_rows = (
+        db.query(m.Data.mac_addr, m.Data.type, m.Data.value, m.Data.timestamp)
+        .join(
+            latest_sub,
+            (m.Data.mac_addr == latest_sub.c.mac_addr)
+            & (m.Data.type == latest_sub.c.type)
+            & (m.Data.timestamp == latest_sub.c.max_ts),
+        )
+        .all()
+    )
+
+    latest_map = {
+        (r.mac_addr, r.type): {
+            "value": float(r.value) if r.value is not None else None,
+            "ts": r.timestamp.isoformat() if r.timestamp else None,
+        }
+        for r in latest_rows
+    }
+
+    out = []
+    for r in stats:
+        key = (r.mac_addr, r.type)
+        out.append(
+            {
+                "mac": r.mac_addr,
+                "type": r.type,
+                "count": int(r.count) if r.count is not None else 0,
+                "min": float(r.min) if r.min is not None else None,
+                "max": float(r.max) if r.max is not None else None,
+                "avg": float(r.avg) if r.avg is not None else None,
+                "latest": latest_map.get(key),
+            }
+        )
+
+    return JSONResponse(api_resp(True, "ok", out))

@@ -10,8 +10,7 @@ class UserType(str, enum.Enum):
 
 class User(Base):
     __tablename__ = "user"
-
-    user_id = Column(String(64), primary_key=True, unique=True)  # Can be email or username
+    user_id = Column(String(64), primary_key=True, unique=True)
     first_name = Column(String(32), nullable=False)
     last_name = Column(String(32), nullable=False)
     password = Column(String(255), nullable=False)
@@ -19,24 +18,23 @@ class User(Base):
     school = Column(String(255), nullable=True)  # School name for teachers
     pin_code = Column(String(4), nullable=True)  # PIN for anonymous students
     pin_reset_required = Column(Boolean, default=False)  # Flag to force PIN reset
+    pin_code = Column(String(4), nullable=True)
+    pin_reset_required = Column(Boolean, default=False)
 
-    # Relationships
     owned_classes = relationship("Class", back_populates="owner")
     class_memberships = relationship("ClassMember", back_populates="user")
 
 class Class(Base):
     __tablename__ = "class"
-
-    id = Column(String(36), primary_key=True)  # UUID
+    id = Column(String(36), primary_key=True)
     name = Column(String(100), nullable=False)
     subject = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    passphrase = Column(String(12), unique=True, nullable=False)  # Easy to type passphrase
+    passphrase = Column(String(12), unique=True, nullable=False)
     owner_id = Column(String(64), ForeignKey("user.user_id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # Relationships
     owner = relationship("User", back_populates="owned_classes")
     members = relationship("ClassMember", back_populates="class_obj", cascade="all, delete-orphan")
 
@@ -45,10 +43,11 @@ class ClassMember(Base):
 
     id = Column(String(36), primary_key=True)  # UUID
     class_id = Column(String(36), ForeignKey("class.id", ondelete="CASCADE"), nullable=False)
+    id = Column(String(36), primary_key=True)
+    class_id = Column(String(36), ForeignKey("class.id"), nullable=False)
     user_id = Column(String(64), ForeignKey("user.user_id"), nullable=False)
     joined_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Relationships
     class_obj = relationship("Class", back_populates="members")
     user = relationship("User", back_populates="class_memberships")
 
@@ -164,3 +163,17 @@ class DeviceData(Base):
     __table_args__ = (
         Index('idx_device_timestamp', 'device_id', 'timestamp'),
     )
+class Device(Base):
+    __tablename__ = "device"
+    mac_addr = Column(String(12), primary_key=True)
+    data_entries = relationship("Data", back_populates="device_obj", cascade="all, delete-orphan")
+
+class Data(Base):
+    __tablename__ = "data"
+    entry_id = Column(Integer, autoincrement=True, primary_key=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    type = Column(String(32), nullable=False)
+    value = Column(Float, nullable=False)
+    mac_addr = Column(String(12), ForeignKey("device.mac_addr"), nullable=False)
+
+    device_obj = relationship("Device", back_populates="data_entries")
