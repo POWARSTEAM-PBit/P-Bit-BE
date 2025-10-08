@@ -23,6 +23,10 @@ class user_register(BaseModel):
     user_type: db_models.UserType
     school: str = Field(None, max_length=255)  # Optional school field for teachers
 
+class LoginPayload(BaseModel):
+    user_id: str
+    password: str
+
 class user_login(BaseModel):
     user_id: str
     password: str
