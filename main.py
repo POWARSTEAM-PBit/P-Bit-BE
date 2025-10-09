@@ -52,6 +52,7 @@ app.include_router(data.router)
 
 @app.get("/")
 def read_root():
+    print("this is root")
     return {"message": "P-Bit WebApp Backend API"}
 
 @app.get("/health")
