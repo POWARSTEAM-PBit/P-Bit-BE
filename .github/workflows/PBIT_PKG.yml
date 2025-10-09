@@ -2,7 +2,7 @@ name: P-Bit BE Build Deployment Workflow
 on:
   push:
     branches:
-      - 'deploy'
+      - 'main'
   pull_request:
     branches:
       - 'main'
