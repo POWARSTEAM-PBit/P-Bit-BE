@@ -34,6 +34,7 @@ jobs:
       - name: Verify registry certificate
         run: |
           openssl s_client -connect 13.239.216.36:443 -CAfile /etc/docker/certs.d/13.239.216.36/ca.crt -showcerts < /dev/null
+          docker push 13.239.216.36/p-bit-be:latest
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
