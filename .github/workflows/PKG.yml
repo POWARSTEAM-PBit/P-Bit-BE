@@ -42,4 +42,12 @@ jobs:
             docker run -d \
               --name pbit-backend \
               -p 8000:8000 \
+              -e DB_HOSTNAME="${{ secrets.DB_HOSTNAME }}" \
+              -e DB_PORT="${{ secrets.DB_PORT }}" \
+              -e DB_USER="${{ secrets.DB_USER }}" \
+              -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+              -e DB_DATABASE="${{ secrets.DB_DATABASE }}" \
+              -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
+              -e ALGORITHM="${{ secrets.ALGORITHM }}" \
+              -e ACCESS_TOKEN_EXPIRE_MINUTES="${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}" \
               localhost/pbit-backend:latest
