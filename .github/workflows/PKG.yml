@@ -1,20 +1,17 @@
-name: P-Bit BE Build/Test Workflow
+name: P-Bit BE Build Deployment Workflow
 on:
   push:
     branches:
-      - 'deploy'
+      - 'main'
   pull_request:
     branches:
-      - 'deploy'
+      - 'main'
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
       
       - name: Configure CA certificate for Docker registry
         run: |
