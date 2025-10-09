@@ -26,3 +26,23 @@ jobs:
         run: |
           docker build -t 13.239.216.36/pbit-backend:latest .
           docker push 13.239.216.36/pbit-backend:latest
+
+      - name: SSH into EC2 and Run Docker Commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            docker stop pbit-backend || true
+            docker rm pbit-backend || true
+            docker rmi pbit-backend:latest
+            
+            docker pull localhost/pbit-backend:latest
+
+            # Run the new container with the same configuration as before
+            docker run -d \
+              --name pbit-backend \
+              -p 8000:8000 \
+              localhost/pbit-backend:latest
