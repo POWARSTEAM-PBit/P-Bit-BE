@@ -2,10 +2,10 @@ name: P-Bit BE Build/Test Workflow Test
 on:
   push:
     branches:
-      - 'main'
+      - 'deploy'
   pull_request:
     branches:
-      - 'main'
+      - 'deploy'
 jobs:
   build:
     runs-on: ubuntu-latest
