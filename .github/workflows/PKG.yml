@@ -2,10 +2,10 @@ name: P-Bit BE Build/Test Workflow
 on:
   push:
     branches:
-      - 'deploy'
+      - 'main'
   pull_request:
     branches:
-      - 'deploy'
+      - 'main'
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -26,6 +26,11 @@ jobs:
       #     pytest
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      - name: Configure CA certificate for Docker registry
+        run: |
+          mkdir -p /etc/docker/certs.d/13.239.216.36
+          echo "${{ secrets.REGISTRY_CA_CERT }}" | base64 -d > /etc/docker/certs.d/13.239.216.36/ca.crt
+          update-ca-certificates
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
