@@ -12,33 +12,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      # - name: Run tests with secrets as environment variables
-      #   env:
-      #     DB_HOSTNAME: ${{ secrets.DB_HOSTNAME }}
-      #     DB_PORT: ${{ secrets.DB_PORT }}
-      #     DB_USER: ${{ secrets.DB_USER }}
-      #     DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      #     DB_DATABASE: ${{ secrets.DB_DATABASE }}
-      #     SECRET_KEY: ${{ secrets.SECRET_KEY }}
-      #     ALGORITHM: ${{ secrets.ALGORITHM }}
-      #     ACCESS_TOKEN_EXPIRE_MINUTES: ${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}
-      #   run: |
-      #     pytest
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+      
       - name: Configure CA certificate for Docker registry
         run: |
           sudo mkdir -p /etc/docker/certs.d/13.239.216.36
           echo "${{ secrets.REGISTRY_CA_CERT }}" | base64 -d | sudo tee /etc/docker/certs.d/13.239.216.36/ca.crt
           sudo update-ca-certificates
-      - name: Verify registry certificate
+      
+      - name: Build and Push Image
         run: |
-          openssl s_client -connect 13.239.216.36:443 -CAfile /etc/docker/certs.d/13.239.216.36/ca.crt -showcerts < /dev/null
           docker build -t 13.239.216.36/pbit-backend:latest .
           docker push 13.239.216.36/pbit-backend:latest
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: 13.239.216.36/p-bit-be:latest
