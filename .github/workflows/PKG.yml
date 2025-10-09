@@ -1,4 +1,4 @@
-name: P-Bit BE Build/Test Workflow Test
+name: P-Bit BE Build/Test Workflow
 on:
   push:
     branches:
@@ -28,9 +28,9 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Configure CA certificate for Docker registry
         run: |
-          mkdir -p /etc/docker/certs.d/13.239.216.36
-          echo "${{ secrets.REGISTRY_CA_CERT }}" | base64 -d > /etc/docker/certs.d/13.239.216.36/ca.crt
-          update-ca-certificates
+          sudo mkdir -p /etc/docker/certs.d/13.239.216.36
+          echo "${{ secrets.REGISTRY_CA_CERT }}" | base64 -d | sudo tee /etc/docker/certs.d/13.239.216.36/ca.crt
+          sudo update-ca-certificates
       - name: Verify registry certificate
         run: |
           openssl s_client -connect 13.239.216.36:443 -CAfile /etc/docker/certs.d/13.239.216.36/ca.crt -showcerts < /dev/null
