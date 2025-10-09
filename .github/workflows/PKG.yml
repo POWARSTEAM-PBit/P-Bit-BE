@@ -42,6 +42,7 @@ jobs:
             docker run -d \
               --name pbit-backend \
               -p 8000:8000 \
+              --restart always \
               -e DB_HOSTNAME="${{ secrets.DB_HOSTNAME }}" \
               -e DB_PORT="${{ secrets.DB_PORT }}" \
               -e DB_USER="${{ secrets.DB_USER }}" \
