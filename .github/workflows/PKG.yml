@@ -31,6 +31,9 @@ jobs:
           mkdir -p /etc/docker/certs.d/13.239.216.36
           echo "${{ secrets.REGISTRY_CA_CERT }}" | base64 -d > /etc/docker/certs.d/13.239.216.36/ca.crt
           update-ca-certificates
+      - name: Verify registry certificate
+        run: |
+          openssl s_client -connect 13.239.216.36:443 -CAfile /etc/docker/certs.d/13.239.216.36/ca.crt -showcerts < /dev/null
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
