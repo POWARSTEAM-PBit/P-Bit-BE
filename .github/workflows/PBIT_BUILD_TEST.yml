@@ -1,6 +1,9 @@
 name: P-Bit BE Build/Test Workflow
 
 on:
+  push:
+    branches:
+      - 'deploy'
   pull_request:
     branches:
       - 'deploy'
