@@ -8,7 +8,7 @@ import uuid
 
 from db.init_engine import get_db
 from db import db_models
-from utils import api_resp, error_resp, validate_pin_code, validate_first_name, validate_passphrase
+from utils import api_resp, error_resp, validate_pin_code, validate_first_name, validate_passphrase, generate_passphrase
 from middleware import get_current_user
 
 router = APIRouter(prefix="/class")
@@ -83,7 +83,7 @@ async def create_class(
         )
     
     # Generate unique passphrase
-    passphrase = db_models.generate_passphrase()
+    passphrase = generate_passphrase()
     
     # Create new class
     new_class = db_models.Class(
