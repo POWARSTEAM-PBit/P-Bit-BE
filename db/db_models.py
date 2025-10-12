@@ -77,8 +77,6 @@ class Device(Base):
 
     id = Column(String(36), primary_key=True)  # UUID
     mac_address = Column(String(17), unique=True, nullable=False)
-    nickname = Column(String(50), nullable=False)
-    user_id = Column(String(64), ForeignKey("user.user_id"), nullable=False)
     is_active = Column(Boolean, default=False)
     battery_level = Column(Integer, default=0)
     last_seen = Column(DateTime(timezone=True), nullable=True)
@@ -86,13 +84,28 @@ class Device(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    user = relationship("User", backref="devices")
+    bookmarks = relationship("DeviceBookmark", back_populates="device", cascade="all, delete-orphan")
     assignments = relationship("DeviceAssignment", back_populates="device", cascade="all, delete-orphan")
     data = relationship("DeviceData", back_populates="device", cascade="all, delete-orphan")
 
-    # Ensure unique nickname per user
+class DeviceBookmark(Base):
+    __tablename__ = "device_bookmarks"
+
+    id = Column(String(36), primary_key=True)  # UUID
+    device_id = Column(String(36), ForeignKey("devices.id"), nullable=False)
+    user_id = Column(String(64), ForeignKey("user.user_id"), nullable=False)
+    nickname = Column(String(50), nullable=False)  # User's custom nickname for this device
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    device = relationship("Device", back_populates="bookmarks")
+    user = relationship("User", backref="device_bookmarks")
+
+    # Ensure unique bookmark per user per device, and unique nickname per user
     __table_args__ = (
-        UniqueConstraint('user_id', 'nickname', name='unique_nickname_per_user'),
+        UniqueConstraint('user_id', 'device_id', name='unique_user_device_bookmark'),
+        UniqueConstraint('user_id', 'nickname', name='unique_user_nickname'),
     )
 
 class DeviceAssignment(Base):
@@ -152,7 +165,9 @@ class DeviceData(Base):
     device_id = Column(String(36), ForeignKey("devices.id"), nullable=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)
     temperature = Column(Numeric(5, 2), nullable=True)  # Temperature in Celsius
+    thermometer = Column(Numeric(5, 2), nullable=True)  # Thermometer reading in Celsius
     humidity = Column(Numeric(5, 2), nullable=True)    # Humidity percentage
+    moisture = Column(Numeric(5, 2), nullable=True)    # Soil moisture percentage
     light = Column(Numeric(8, 2), nullable=True)       # Light level in lux
     sound = Column(Numeric(5, 2), nullable=True)       # Sound level in dB
     created_at = Column(DateTime(timezone=True), server_default=func.now())
