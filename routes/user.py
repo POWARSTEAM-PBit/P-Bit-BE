@@ -49,6 +49,7 @@ def verify_password(plain_password: str, hashed_password: str):
     500: INTERNAL_SERVER_ERROR_REGISTER_RESPONSE,
 })
 async def register(payload: user_register, db: Session = Depends(get_db)):
+    print("HELLOWORLD")
     existing_user = db.query(db_models.User).filter(db_models.User.user_id == payload.user_id).first()
     if existing_user:
         return JSONResponse(

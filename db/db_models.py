@@ -3,6 +3,9 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from db.init_engine import Base
 import enum
+import enum
+import secrets
+import string
 
 class UserType(str, enum.Enum):
     STUDENT = "student"
@@ -179,3 +182,19 @@ class DeviceData(Base):
     __table_args__ = (
         Index('idx_device_timestamp', 'device_id', 'timestamp'),
     )
+def generate_passphrase(length=8):
+    """Generate an easy-to-type unique passphrase"""
+    # Use only letters and numbers, avoiding confusing characters
+    alphabet = string.ascii_uppercase + string.digits
+    # Remove confusing characters: 0, O, 1, I, L
+    alphabet = alphabet.replace('0', '').replace('O', '').replace('1', '').replace('I', '').replace('L', '')
+
+    while True:
+        passphrase = ''.join(secrets.choice(alphabet) for _ in range(length))
+        # Ensure it's not all the same character
+        if len(set(passphrase)) > 1:
+            return passphrase
+
+def generate_pin_code():
+    """Generate a 4-digit PIN code"""
+    return ''.join(secrets.choice(string.digits) for _ in range(4))

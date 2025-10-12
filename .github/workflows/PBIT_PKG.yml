@@ -1,0 +1,54 @@
+name: P-Bit BE Build Deployment Workflow
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Configure CA certificate for Docker registry
+        run: |
+          sudo mkdir -p /etc/docker/certs.d/13.239.216.36
+          echo "${{ secrets.REGISTRY_CA_CERT }}" | base64 -d | sudo tee /etc/docker/certs.d/13.239.216.36/ca.crt
+          sudo update-ca-certificates
+      
+      - name: Build and Push Image
+        run: |
+          docker build -t 13.239.216.36/pbit-backend:latest .
+          docker push 13.239.216.36/pbit-backend:latest
+
+      - name: SSH into EC2 and Run Docker Commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            docker stop pbit-backend || true
+            docker rm pbit-backend || true
+            docker rmi pbit-backend:latest
+            
+            docker pull localhost/pbit-backend:latest
+
+            # Run the new container with the same configuration as before
+            docker run -d \
+              --name pbit-backend \
+              -p 8000:8000 \
+              --restart always \
+              -e DB_HOSTNAME="${{ secrets.DB_HOSTNAME }}" \
+              -e DB_PORT="${{ secrets.DB_PORT }}" \
+              -e DB_USER="${{ secrets.DB_USER }}" \
+              -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+              -e DB_DATABASE="${{ secrets.DB_DATABASE }}" \
+              -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
+              -e ALGORITHM="${{ secrets.ALGORITHM }}" \
+              -e ACCESS_TOKEN_EXPIRE_MINUTES="${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}" \
+              localhost/pbit-backend:latest

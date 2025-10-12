@@ -12,20 +12,23 @@ app = FastAPI()
 # Add CORS middleware BEFORE including routers
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://13.239.216.36:80",
-        "http://127.0.0.1:3000",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-        "http://localhost:4200",
-        "http://127.0.0.1:4200",
-        "http://localhost:4000",
-        "http://127.0.0.1:4000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-    ],
+    # allow_origins=[
+    #     "http://13.239.216.36:80",
+    #     "http://127.0.0.1:3000",
+    #     "http://localhost:8000",
+    #     "http"
+    #     "http://localhost:8080",
+    #     "http://127.0.0.1:8080",
+    #     "http://localhost:4200",
+    #     "http://127.0.0.1:4200",
+    #     "http://localhost:4000",
+    #     "http://127.0.0.1:4000",
+    #     "http://localhost:5173",
+    #     "http://127.0.0.1:5173",
+    #     "http://localhost:5174",
+    #     "http://127.0.0.1:5174",
+    # ],
+    allow_origins=["*"],  # Allow all origins for development; restrict in production
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[
@@ -52,6 +55,7 @@ app.include_router(data.router)
 
 @app.get("/")
 def read_root():
+    print("this is root")
     return {"message": "P-Bit WebApp Backend API"}
 
 @app.get("/health")
