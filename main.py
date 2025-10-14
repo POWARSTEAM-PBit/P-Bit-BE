@@ -13,7 +13,8 @@ app = FastAPI()
 frontend_origins = [
     "http://13.239.216.36",      # your EC2 frontend HTTP (port 80)
     "http://localhost:3000",     # local dev frontend
-    "http://ec2-13-239-216-36.ap-southeast-2.compute.amazonaws.com"
+    "http://ec2-13-239-216-36.ap-southeast-2.compute.amazonaws.com",
+    "http://localhost:8000"
     # add other origins if needed, e.g. HTTPS or different ports
 ]
 
