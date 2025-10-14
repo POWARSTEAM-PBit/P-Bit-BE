@@ -19,6 +19,8 @@ router = APIRouter(prefix="/device")
 # Pydantic models for request/response
 class DeviceDataUpload(BaseModel):
     temperature: Optional[float] = Field(None, ge=-50, le=100)
+    thermometer: Optional[float] = Field(None, ge=-50, le=100)
+    humidity: Optional[float] = Field(None, ge=0, le=100)
     moisture: Optional[float] = Field(None, ge=0, le=100)
     light: Optional[float] = Field(None, ge=0, le=10000)
     sound: Optional[float] = Field(None, ge=0, le=200)
@@ -87,6 +89,8 @@ async def get_device_data(
         sensor_data_list.append({
             "timestamp": data.timestamp.isoformat() if data.timestamp else None,
             "temperature": float(data.temperature) if data.temperature is not None else None,
+            "thermometer": float(data.thermometer) if data.thermometer is not None else None,
+            "humidity": float(data.humidity) if data.humidity is not None else None,
             "moisture": float(data.moisture) if data.moisture is not None else None,
             "light": float(data.light) if data.light is not None else None,
             "sound": float(data.sound) if data.sound is not None else None
@@ -98,6 +102,8 @@ async def get_device_data(
         latest_data = sensor_data[0]  # Most recent due to desc order
         current_readings = {
             "temperature": float(latest_data.temperature) if latest_data.temperature is not None else None,
+            "thermometer": float(latest_data.thermometer) if latest_data.thermometer is not None else None,
+            "humidity": float(latest_data.humidity) if latest_data.humidity is not None else None,
             "moisture": float(latest_data.moisture) if latest_data.moisture is not None else None,
             "light": float(latest_data.light) if latest_data.light is not None else None,
             "sound": float(latest_data.sound) if latest_data.sound is not None else None,
@@ -191,6 +197,8 @@ async def get_device_data_by_mac(
         sensor_data_list.append({
             "timestamp": data.timestamp.isoformat() if data.timestamp else None,
             "temperature": float(data.temperature) if data.temperature is not None else None,
+            "thermometer": float(data.thermometer) if data.thermometer is not None else None,
+            "humidity": float(data.humidity) if data.humidity is not None else None,
             "moisture": float(data.moisture) if data.moisture is not None else None,
             "light": float(data.light) if data.light is not None else None,
             "sound": float(data.sound) if data.sound is not None else None
@@ -202,6 +210,8 @@ async def get_device_data_by_mac(
         latest_data = sensor_data[0]  # Most recent due to desc order
         current_readings = {
             "temperature": float(latest_data.temperature) if latest_data.temperature is not None else None,
+            "thermometer": float(latest_data.thermometer) if latest_data.thermometer is not None else None,
+            "humidity": float(latest_data.humidity) if latest_data.humidity is not None else None,
             "moisture": float(latest_data.moisture) if latest_data.moisture is not None else None,
             "light": float(latest_data.light) if latest_data.light is not None else None,
             "sound": float(latest_data.sound) if latest_data.sound is not None else None,
@@ -262,6 +272,8 @@ async def upload_device_data(
         device_id=device.id,
         timestamp=datetime.utcnow(),
         temperature=payload.temperature,
+        thermometer=payload.thermometer,
+        humidity=payload.humidity,
         moisture=payload.moisture,
         light=payload.light,
         sound=payload.sound
@@ -287,6 +299,8 @@ async def upload_device_data(
                     "device_id": device.id,
                     "timestamp": new_data.timestamp.isoformat() if new_data.timestamp else None,
                     "temperature": float(new_data.temperature) if new_data.temperature is not None else None,
+                    "thermometer": float(new_data.thermometer) if new_data.thermometer is not None else None,
+                    "humidity": float(new_data.humidity) if new_data.humidity is not None else None,
                     "moisture": float(new_data.moisture) if new_data.moisture is not None else None,
                     "light": float(new_data.light) if new_data.light is not None else None,
                     "sound": float(new_data.sound) if new_data.sound is not None else None

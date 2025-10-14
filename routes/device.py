@@ -31,7 +31,9 @@ class DeviceDataInput(BaseModel):
     device_id: str = Field(..., min_length=1)
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     temperature: Optional[float] = Field(None, ge=-50, le=100)
+    thermometer: Optional[float] = Field(None, ge=-50, le=100)
     humidity: Optional[float] = Field(None, ge=0, le=100)
+    moisture: Optional[float] = Field(None, ge=0, le=100)
     light: Optional[float] = Field(None, ge=0, le=100000)
     sound: Optional[float] = Field(None, ge=0, le=200)
 
@@ -40,13 +42,15 @@ class DeviceDataResponse(BaseModel):
     device_id: str
     timestamp: datetime
     temperature: Optional[float]
+    thermometer: Optional[float]
     humidity: Optional[float]
+    moisture: Optional[float]
     light: Optional[float]
     sound: Optional[float]
     created_at: datetime
 
 
-# Register new device
+# Register new device (or bookmark existing device)
 @router.post("/register", tags=["device"], status_code=status.HTTP_201_CREATED)
 async def register_device(
     payload: DeviceRegister,
@@ -76,25 +80,23 @@ async def register_device(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     
-    # Check if MAC address already exists
+    # Check if device with this MAC address already exists
     existing_device = db.query(db_models.Device).filter(
         db_models.Device.mac_address == payload.mac_address
     ).first()
     
+    # Check if user already has a bookmark for this device
+    existing_bookmark = None
     if existing_device:
-        return JSONResponse(
-            content=api_resp(
-                success=False,
-                message="Device with this MAC address already exists",
-                error_type="duplicate_mac"
-            ).dict(),
-            status_code=status.HTTP_409_CONFLICT,
-        )
+        existing_bookmark = db.query(db_models.DeviceBookmark).filter(
+            db_models.DeviceBookmark.device_id == existing_device.id,
+            db_models.DeviceBookmark.user_id == current_user.user_id
+        ).first()
     
     # Check if nickname already exists for this user
-    existing_nickname = db.query(db_models.Device).filter(
-        db_models.Device.user_id == current_user.user_id,
-        db_models.Device.nickname == payload.nickname
+    existing_nickname = db.query(db_models.DeviceBookmark).filter(
+        db_models.DeviceBookmark.user_id == current_user.user_id,
+        db_models.DeviceBookmark.nickname == payload.nickname
     ).first()
     
     if existing_nickname:
@@ -107,63 +109,105 @@ async def register_device(
             status_code=status.HTTP_409_CONFLICT,
         )
     
-    # Create new device
-    new_device = db_models.Device(
-        id=str(uuid.uuid4()),
-        mac_address=payload.mac_address,
-        nickname=payload.nickname,
-        user_id=current_user.user_id,
-        is_active=False,
-        battery_level=0,
-        last_seen=None
-    )
+    # If user already has a bookmark for this device, return existing bookmark
+    if existing_bookmark:
+        return JSONResponse(
+            content=api_resp(
+                success=True,
+                message="Device already bookmarked with this user",
+                data={
+                    "id": existing_device.id,
+                    "mac_address": existing_device.mac_address,
+                    "nickname": existing_bookmark.nickname,
+                    "is_active": existing_device.is_active,
+                    "battery_level": existing_device.battery_level,
+                    "last_seen": existing_device.last_seen.isoformat() if existing_device.last_seen else None,
+                    "created_at": existing_device.created_at.isoformat() if existing_device.created_at else None
+                }
+            ).dict(),
+            status_code=status.HTTP_200_OK,
+        )
     
     try:
-        db.add(new_device)
+        # If device doesn't exist, create it
+        if not existing_device:
+            new_device = db_models.Device(
+                id=str(uuid.uuid4()),
+                mac_address=payload.mac_address,
+                is_active=False,
+                battery_level=0,
+                last_seen=None
+            )
+            db.add(new_device)
+            db.flush()  # Get the ID without committing
+            device_id = new_device.id
+        else:
+            device_id = existing_device.id
+        
+        # Create bookmark for the user
+        new_bookmark = db_models.DeviceBookmark(
+            id=str(uuid.uuid4()),
+            device_id=device_id,
+            user_id=current_user.user_id,
+            nickname=payload.nickname
+        )
+        db.add(new_bookmark)
         db.commit()
-        db.refresh(new_device)
+        
+        # Get the device for response
+        device = db.query(db_models.Device).filter(db_models.Device.id == device_id).first()
         
         return JSONResponse(
             content=api_resp(
                 success=True,
-                message="Device registered successfully",
+                message="Device bookmarked successfully",
                 data={
-                    "id": new_device.id,
-                    "mac_address": new_device.mac_address,
-                    "nickname": new_device.nickname,
-                    "user_id": new_device.user_id,
-                    "is_active": new_device.is_active,
-                    "battery_level": new_device.battery_level,
-                    "last_seen": new_device.last_seen.isoformat() if new_device.last_seen else None,
-                    "created_at": new_device.created_at.isoformat() if new_device.created_at else None
+                    "id": device.id,
+                    "mac_address": device.mac_address,
+                    "nickname": new_bookmark.nickname,
+                    "is_active": device.is_active,
+                    "battery_level": device.battery_level,
+                    "last_seen": device.last_seen.isoformat() if device.last_seen else None,
+                    "created_at": device.created_at.isoformat() if device.created_at else None
                 }
             ).dict(),
             status_code=status.HTTP_201_CREATED,
         )
-    except Exception:
+    except Exception as e:
         db.rollback()
+        print(f"Device registration error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
             content=api_resp(
                 success=False,
-                message="Failed to register device",
+                message=f"Failed to bookmark device: {str(e)}",
                 error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-# Get user's devices
+# Get user's bookmarked devices
 @router.get("/user-devices", tags=["device"], status_code=status.HTTP_200_OK)
 async def get_user_devices(
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Get all devices for the current user
-    devices = db.query(db_models.Device).filter(
-        db_models.Device.user_id == current_user.user_id
+    # Get all device bookmarks for the current user
+    bookmarks = db.query(db_models.DeviceBookmark).filter(
+        db_models.DeviceBookmark.user_id == current_user.user_id
     ).all()
     
     devices_data = []
-    for device in devices:
+    for bookmark in bookmarks:
+        # Get the device
+        device = db.query(db_models.Device).filter(
+            db_models.Device.id == bookmark.device_id
+        ).first()
+        
+        if not device:
+            continue
+            
         # Get classroom assignments for this device
         assignments = db.query(db_models.DeviceAssignment).filter(
             db_models.DeviceAssignment.device_id == device.id
@@ -186,7 +230,7 @@ async def get_user_devices(
         devices_data.append({
             "id": device.id,
             "mac_address": device.mac_address,
-            "nickname": device.nickname,
+            "nickname": bookmark.nickname,  # Use bookmark's nickname
             "is_active": device.is_active,
             "battery_level": device.battery_level,
             "last_seen": device.last_seen.isoformat() if device.last_seen else None,
@@ -247,6 +291,15 @@ async def get_classroom_devices(
         ).first()
         
         if device:
+            # Get the teacher's bookmark for this device to get their custom nickname
+            bookmark = db.query(db_models.DeviceBookmark).filter(
+                db_models.DeviceBookmark.device_id == device.id,
+                db_models.DeviceBookmark.user_id == current_user.user_id
+            ).first()
+            
+            # Use bookmark nickname if available, otherwise use MAC address
+            display_nickname = bookmark.nickname if bookmark else f"Device {device.mac_address[-4:]}"
+            
             assignments_data.append({
                 "id": assignment.id,
                 "device_id": assignment.device_id,
@@ -256,7 +309,7 @@ async def get_classroom_devices(
                 "device": {
                     "id": device.id,
                     "mac_address": device.mac_address,
-                    "nickname": device.nickname,
+                    "nickname": display_nickname,
                     "is_active": device.is_active,
                     "battery_level": device.battery_level,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None
@@ -292,10 +345,9 @@ async def assign_device(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     
-    # Check if device exists and belongs to user
+    # Check if device exists
     device = db.query(db_models.Device).filter(
-        db_models.Device.id == device_id,
-        db_models.Device.user_id == current_user.user_id
+        db_models.Device.id == device_id
     ).first()
     
     if not device:
@@ -304,6 +356,22 @@ async def assign_device(
                 success=False,
                 message="Device not found",
                 error_type="device_not_found"
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    
+    # Check if user has a bookmark for this device
+    bookmark = db.query(db_models.DeviceBookmark).filter(
+        db_models.DeviceBookmark.device_id == device_id,
+        db_models.DeviceBookmark.user_id == current_user.user_id
+    ).first()
+    
+    if not bookmark:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Device not bookmarked by this user",
+                error_type="device_not_bookmarked"
             ).dict(),
             status_code=status.HTTP_404_NOT_FOUND,
         )
@@ -559,17 +627,16 @@ async def update_device_assignment(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-# Delete device
+# Remove device bookmark (unbookmark device)
 @router.delete("/{device_id}", tags=["device"], status_code=status.HTTP_200_OK)
 async def delete_device(
     device_id: str,
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Check if device exists and belongs to user
+    # Check if device exists
     device = db.query(db_models.Device).filter(
-        db_models.Device.id == device_id,
-        db_models.Device.user_id == current_user.user_id
+        db_models.Device.id == device_id
     ).first()
     
     if not device:
@@ -582,29 +649,53 @@ async def delete_device(
             status_code=status.HTTP_404_NOT_FOUND,
         )
     
-    # Check if device has any assignments
+    # Check if user has a bookmark for this device
+    bookmark = db.query(db_models.DeviceBookmark).filter(
+        db_models.DeviceBookmark.device_id == device_id,
+        db_models.DeviceBookmark.user_id == current_user.user_id
+    ).first()
+    
+    if not bookmark:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Device not bookmarked by this user",
+                error_type="bookmark_not_found"
+            ).dict(),
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+    
+    # Check if device has any classroom assignments by this user
+    # (We only check assignments in classrooms owned by this user)
+    user_classrooms = db.query(db_models.Class).filter(
+        db_models.Class.owner_id == current_user.user_id
+    ).all()
+    
+    user_classroom_ids = [c.id for c in user_classrooms]
     assignments = db.query(db_models.DeviceAssignment).filter(
-        db_models.DeviceAssignment.device_id == device_id
+        db_models.DeviceAssignment.device_id == device_id,
+        db_models.DeviceAssignment.classroom_id.in_(user_classroom_ids)
     ).all()
     
     if assignments:
         return JSONResponse(
             content=api_resp(
                 success=False,
-                message="Cannot delete device with active classroom assignments. Please unassign from all classrooms first.",
+                message="Cannot remove device bookmark while it's assigned to your classrooms. Please unassign from all classrooms first.",
                 error_type="device_has_assignments"
             ).dict(),
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     
     try:
-        db.delete(device)
+        # Remove the bookmark
+        db.delete(bookmark)
         db.commit()
         
         return JSONResponse(
             content=api_resp(
                 success=True,
-                message="Device deleted successfully"
+                message="Device bookmark removed successfully"
             ).dict(),
             status_code=status.HTTP_200_OK,
         )
@@ -613,7 +704,7 @@ async def delete_device(
         return JSONResponse(
             content=api_resp(
                 success=False,
-                message="Failed to delete device",
+                message="Failed to remove device bookmark",
                 error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -687,7 +778,7 @@ async def get_device_anonymous(
                 data={
                     "id": device.id,
                     "mac_address": device.mac_address,
-                    "nickname": device.nickname,
+                    "nickname": None,  # Anonymous users don't have nicknames
                     "is_active": device.is_active,
                     "battery_level": device.battery_level,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None,
@@ -735,10 +826,16 @@ async def get_device(
             )
         
         # Check if user has access to this device
-        # User can access if they own the device or if it's assigned to a classroom they're in
+        # User can access if they have bookmarked the device or if it's assigned to a classroom they're in
         has_access = False
         
-        if device.user_id == current_user.user_id:
+        # Check if user has bookmarked this device
+        device_bookmark = db.query(db_models.DeviceBookmark).filter(
+            db_models.DeviceBookmark.device_id == device_id,
+            db_models.DeviceBookmark.user_id == current_user.user_id
+        ).first()
+        
+        if device_bookmark:
             has_access = True
         else:
             # Check if device is assigned to a classroom the user is in
@@ -763,6 +860,9 @@ async def get_device(
                 status_code=status.HTTP_403_FORBIDDEN,
             )
         
+        # Get user's nickname for this device (if bookmarked)
+        nickname = device_bookmark.nickname if device_bookmark else None
+        
         return JSONResponse(
             content=api_resp(
                 success=True,
@@ -770,7 +870,7 @@ async def get_device(
                 data={
                     "id": device.id,
                     "mac_address": device.mac_address,
-                    "nickname": device.nickname,
+                    "nickname": nickname,
                     "is_active": device.is_active,
                     "battery_level": device.battery_level,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None,
@@ -831,7 +931,7 @@ async def get_device_by_mac(
             data={
                 "id": device.id,
                 "mac_address": device.mac_address,
-                "nickname": device.nickname,
+                "nickname": None,  # No user context for MAC lookup
                 "is_active": device.is_active,
                 "battery_level": device.battery_level,
                 "last_seen": device.last_seen.isoformat() if device.last_seen else None
@@ -873,7 +973,9 @@ async def add_device_data(
             device_id=payload.device_id,
             timestamp=payload.timestamp,
             temperature=payload.temperature,
+            thermometer=payload.thermometer,
             humidity=payload.humidity,
+            moisture=payload.moisture,
             light=payload.light,
             sound=payload.sound
         )
@@ -895,7 +997,9 @@ async def add_device_data(
                     "device_id": device_data.device_id,
                     "timestamp": device_data.timestamp.isoformat(),
                     "temperature": float(device_data.temperature) if device_data.temperature else None,
+                    "thermometer": float(device_data.thermometer) if device_data.thermometer else None,
                     "humidity": float(device_data.humidity) if device_data.humidity else None,
+                    "moisture": float(device_data.moisture) if device_data.moisture else None,
                     "light": float(device_data.light) if device_data.light else None,
                     "sound": float(device_data.sound) if device_data.sound else None
                 }
@@ -943,10 +1047,16 @@ async def get_device_data(
             )
         
         # Check if user has access to this device
-        # User can access if they own the device or if it's assigned to a classroom they're in
+        # User can access if they have bookmarked the device or if it's assigned to a classroom they're in
         has_access = False
         
-        if device.user_id == current_user.user_id:
+        # Check if user has bookmarked this device
+        device_bookmark = db.query(db_models.DeviceBookmark).filter(
+            db_models.DeviceBookmark.device_id == device_id,
+            db_models.DeviceBookmark.user_id == current_user.user_id
+        ).first()
+        
+        if device_bookmark:
             has_access = True
         else:
             # Check if device is assigned to a classroom the user is in
@@ -993,7 +1103,9 @@ async def get_device_data(
                 "device_id": record.device_id,
                 "timestamp": record.timestamp.isoformat(),
                 "temperature": float(record.temperature) if record.temperature else None,
+                "thermometer": float(record.thermometer) if record.thermometer else None,
                 "humidity": float(record.humidity) if record.humidity else None,
+                "moisture": float(record.moisture) if record.moisture else None,
                 "light": float(record.light) if record.light else None,
                 "sound": float(record.sound) if record.sound else None,
                 "created_at": record.created_at.isoformat()
@@ -1093,7 +1205,9 @@ async def get_latest_device_data_anonymous(
                         "device_id": latest_data.device_id,
                         "timestamp": latest_data.timestamp.isoformat(),
                         "temperature": float(latest_data.temperature) if latest_data.temperature else None,
+                        "thermometer": float(latest_data.thermometer) if latest_data.thermometer else None,
                         "humidity": float(latest_data.humidity) if latest_data.humidity else None,
+                        "moisture": float(latest_data.moisture) if latest_data.moisture else None,
                         "light": float(latest_data.light) if latest_data.light else None,
                         "sound": float(latest_data.sound) if latest_data.sound else None,
                         "created_at": latest_data.created_at.isoformat()
@@ -1210,7 +1324,9 @@ async def get_device_data_anonymous(
                 "device_id": data.device_id,
                 "timestamp": data.timestamp.isoformat(),
                 "temperature": float(data.temperature) if data.temperature else None,
+                "thermometer": float(data.thermometer) if data.thermometer else None,
                 "humidity": float(data.humidity) if data.humidity else None,
+                "moisture": float(data.moisture) if data.moisture else None,
                 "light": float(data.light) if data.light else None,
                 "sound": float(data.sound) if data.sound else None,
                 "created_at": data.created_at.isoformat()
@@ -1264,7 +1380,13 @@ async def get_latest_device_data(
             )
         
         # Check access (simplified for brevity - same logic as above)
-        has_access = device.user_id == current_user.user_id
+        # Check if user has bookmarked this device
+        device_bookmark = db.query(db_models.DeviceBookmark).filter(
+            db_models.DeviceBookmark.device_id == device_id,
+            db_models.DeviceBookmark.user_id == current_user.user_id
+        ).first()
+        
+        has_access = device_bookmark is not None
         if not has_access:
             # Check classroom access
             classroom_access = db.query(db_models.DeviceAssignment).join(
@@ -1310,7 +1432,9 @@ async def get_latest_device_data(
             "device_id": latest_data.device_id,
             "timestamp": latest_data.timestamp.isoformat(),
             "temperature": float(latest_data.temperature) if latest_data.temperature else None,
+            "thermometer": float(latest_data.thermometer) if latest_data.thermometer else None,
             "humidity": float(latest_data.humidity) if latest_data.humidity else None,
+            "moisture": float(latest_data.moisture) if latest_data.moisture else None,
             "light": float(latest_data.light) if latest_data.light else None,
             "sound": float(latest_data.sound) if latest_data.sound else None,
             "created_at": latest_data.created_at.isoformat()

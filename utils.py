@@ -213,16 +213,21 @@ def validate_first_name(first_name: str) -> tuple[bool, str]:
 def validate_passphrase(passphrase: str) -> tuple[bool, str]:
     """
     Validate classroom passphrase format.
+    Expected format: ABCD-EFGH (4 letters - 4 letters)
     Returns (is_valid, error_message)
     """
     if not passphrase:
         return False, "Passphrase is required"
     
-    if len(passphrase) < 8:
-        return False, "Passphrase must be at least 8 characters"
+    # Check exact length (9 characters: 4 letters + hyphen + 4 letters)
+    if len(passphrase) != 9:
+        return False, "Passphrase must be exactly 9 characters (ABCD-EFGH format)"
     
-    if len(passphrase) > 12:
-        return False, "Passphrase must be 12 characters or less"
+    # Check format: ABCD-EFGH
+    import re
+    pattern = r'^[A-Z]{4}-[A-Z]{4}$'
+    if not re.match(pattern, passphrase):
+        return False, "Passphrase must be in format ABCD-EFGH (4 uppercase letters, hyphen, 4 uppercase letters)"
     
     return True, ""
 
@@ -319,3 +324,23 @@ def validate_time_range(time_range: str) -> tuple[bool, str]:
         return False, f"Time range must be one of: {', '.join(valid_ranges)}"
     
     return True, ""
+
+def generate_passphrase() -> str:
+    """
+    Generate a unique, easy-to-type passphrase for classroom access.
+    Returns an 8-character passphrase in format: ABCD-EFGH (4 letters - 4 letters).
+    """
+    import random
+    import string
+    
+    # Use only uppercase letters for easy reading and typing
+    letters = string.ascii_uppercase
+    
+    # Generate two groups of 4 letters each
+    group1 = ''.join(random.choice(letters) for _ in range(4))
+    group2 = ''.join(random.choice(letters) for _ in range(4))
+    
+    # Combine with hyphen: ABCD-EFGH
+    passphrase = f"{group1}-{group2}"
+    
+    return passphrase

@@ -4,7 +4,9 @@ from sqlalchemy.pool import QueuePool
 from constants import DB_HOSTNAME, DB_PASSWORD, DB_PORT, DB_USER, DB_DATABASE
 
 # Amazon database connection
-URL_DATABASE = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOSTNAME}:{DB_PORT}/{DB_DATABASE}'
+# Extract hostname from DB_HOSTNAME (remove protocol and port if present)
+hostname = DB_HOSTNAME.replace('http://', '').replace('https://', '').split(':')[0]
+URL_DATABASE = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{hostname}:{DB_PORT}/{DB_DATABASE}'
 
 engine = create_engine(
     URL_DATABASE,
