@@ -6,29 +6,19 @@ import routes.group as group
 import routes.data as data
 from fastapi.middleware.cors import CORSMiddleware
 
-
 app = FastAPI()
 
-# Add CORS middleware BEFORE including routers
+# List the exact origins your frontend will be accessed from
+# For example:
+frontend_origins = [
+    "http://13.239.216.36",      # your EC2 frontend HTTP (port 80)
+    "http://localhost:3000",     # local dev frontend
+    # add other origins if needed, e.g. HTTPS or different ports
+]
+
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=[
-    #     "http://13.239.216.36:80",
-    #     "http://127.0.0.1:3000",
-    #     "http://localhost:8000",
-    #     "http"
-    #     "http://localhost:8080",
-    #     "http://127.0.0.1:8080",
-    #     "http://localhost:4200",
-    #     "http://127.0.0.1:4200",
-    #     "http://localhost:4000",
-    #     "http://127.0.0.1:4000",
-    #     "http://localhost:5173",
-    #     "http://127.0.0.1:5173",
-    #     "http://localhost:5174",
-    #     "http://127.0.0.1:5174",
-    # ],
-    allow_origins=["*"],  # Allow all origins for development; restrict in production
+    allow_origins=frontend_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[
@@ -43,7 +33,7 @@ app.add_middleware(
         "Access-Control-Request-Headers",
     ],
     expose_headers=["*"],
-    max_age=86400,  # Cache preflight requests for 24 hours
+    max_age=86400,
 )
 
 # Include routers AFTER CORS middleware
@@ -61,4 +51,3 @@ def read_root():
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "message": "Backend is running"}
-
