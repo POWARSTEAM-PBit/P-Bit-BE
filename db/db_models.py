@@ -83,6 +83,8 @@ class Device(Base):
     is_active = Column(Boolean, default=False)
     battery_level = Column(Integer, default=0)
     last_seen = Column(DateTime(timezone=True), nullable=True)
+    device_type = Column(String(20), default="standard")  # 'standard', 'ble', etc.
+    description = Column(String(200), nullable=True)  # Optional description
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

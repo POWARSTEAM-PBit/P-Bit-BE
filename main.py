@@ -29,7 +29,7 @@ app.add_middleware(
     #     "http://127.0.0.1:5174",
     # ],
     allow_origins=["*"],  # Allow all origins for development; restrict in production
-    allow_credentials=True,
+    allow_credentials=False,  # Must be False when using wildcard origins
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[
         "Accept",

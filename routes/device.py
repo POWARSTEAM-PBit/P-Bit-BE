@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, Query
+from fastapi import APIRouter, Depends, status, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, and_
@@ -26,6 +26,25 @@ class DeviceAssign(BaseModel):
     classroom_id: str = Field(..., min_length=1)
     assignment_type: str = Field(..., min_length=1)
     assignment_id: Optional[str] = Field(None)
+
+class BLEDeviceRegister(BaseModel):
+    nickname: str = Field(..., min_length=2, max_length=20)
+    mac_address: Optional[str] = Field("", max_length=17)
+    is_active: bool = Field(True)
+    battery_level: Optional[float] = Field(None, ge=0, le=100)
+    device_type: str = Field("ble", max_length=10)
+    description: Optional[str] = Field(None, max_length=200)
+
+class BLEDataReading(BaseModel):
+    timestamp: datetime
+    temperature: Optional[float] = Field(None, ge=-50, le=100)
+    humidity: Optional[float] = Field(None, ge=0, le=100)
+    light: Optional[float] = Field(None, ge=0, le=100000)
+    sound: Optional[float] = Field(None, ge=0, le=200)
+    battery_level: Optional[float] = Field(None, ge=0, le=100)
+
+class BLEBatchRecord(BaseModel):
+    readings: List[BLEDataReading] = Field(..., min_items=1, max_items=100)
 
 class DeviceDataInput(BaseModel):
     device_id: str = Field(..., min_length=1)
@@ -182,6 +201,182 @@ async def register_device(
             content=api_resp(
                 success=False,
                 message=f"Failed to bookmark device: {str(e)}",
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+# Register BLE device
+@router.post("/register-ble", tags=["device"], status_code=status.HTTP_201_CREATED)
+async def register_ble_device(
+    payload: BLEDeviceRegister,
+    current_user: db_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Validate nickname
+    is_valid_nickname, nickname_error = validate_nickname(payload.nickname)
+    if not is_valid_nickname:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message=nickname_error,
+                error_type="validation_error"
+            ).dict(),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+    
+    # Check if nickname already exists for this user
+    existing_nickname = db.query(db_models.DeviceBookmark).filter(
+        db_models.DeviceBookmark.user_id == current_user.user_id,
+        db_models.DeviceBookmark.nickname == payload.nickname
+    ).first()
+    
+    if existing_nickname:
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Nickname already exists for this user",
+                error_type="duplicate_nickname"
+            ).dict(),
+            status_code=status.HTTP_409_CONFLICT,
+        )
+    
+    try:
+        # Create BLE device
+        new_device = db_models.Device(
+            id=str(uuid.uuid4()),
+            mac_address=payload.mac_address or f"BLE:{str(uuid.uuid4())[:8]}",  # Generate unique BLE identifier
+            is_active=payload.is_active,
+            battery_level=payload.battery_level or 0,
+            last_seen=datetime.utcnow(),
+            device_type=payload.device_type,
+            description=payload.description
+        )
+        db.add(new_device)
+        db.flush()  # Get the ID without committing
+        
+        # Create bookmark for the user
+        new_bookmark = db_models.DeviceBookmark(
+            id=str(uuid.uuid4()),
+            device_id=new_device.id,
+            user_id=current_user.user_id,
+            nickname=payload.nickname
+        )
+        db.add(new_bookmark)
+        db.commit()
+        
+        return JSONResponse(
+            content=api_resp(
+                success=True,
+                message="BLE device registered successfully",
+                data={
+                    "device_id": new_device.id,
+                    "mac_address": new_device.mac_address,
+                    "nickname": new_bookmark.nickname,
+                    "is_active": new_device.is_active,
+                    "battery_level": new_device.battery_level,
+                    "device_type": new_device.device_type,
+                    "description": new_device.description,
+                    "last_seen": new_device.last_seen.isoformat() if new_device.last_seen else None,
+                    "created_at": new_device.created_at.isoformat() if new_device.created_at else None
+                }
+            ).dict(),
+            status_code=status.HTTP_201_CREATED,
+        )
+    except Exception as e:
+        db.rollback()
+        print(f"BLE device registration error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message=f"Failed to register BLE device: {str(e)}",
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+# Record BLE batch data
+@router.post("/record-ble-batch", tags=["device"], status_code=status.HTTP_201_CREATED)
+async def record_ble_batch(
+    request: Request,
+    payload: BLEBatchRecord,
+    current_user: db_models.User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Get the user's BLE device (the one they're currently connected to)
+        # We'll use the device name from the request headers to identify which device
+        device_name = request.headers.get('X-Device-Name', 'P-BIT')
+        
+        # Find the user's device bookmark with this name
+        bookmark = db.query(db_models.DeviceBookmark).filter(
+            db_models.DeviceBookmark.user_id == current_user.user_id,
+            db_models.DeviceBookmark.nickname == device_name
+        ).first()
+        
+        if not bookmark:
+            return JSONResponse(
+                content=api_resp(
+                    success=False,
+                    message="BLE device not found for current user",
+                    error_type="device_not_found"
+                ).dict(),
+                status_code=status.HTTP_404_NOT_FOUND,
+            )
+        
+        # Record each reading
+        recorded_count = 0
+        for reading in payload.readings:
+            try:
+                new_data = db_models.DeviceData(
+                    id=str(uuid.uuid4()),
+                    device_id=bookmark.device_id,
+                    timestamp=reading.timestamp,
+                    temperature=reading.temperature,
+                    humidity=reading.humidity,
+                    light=reading.light,
+                    sound=reading.sound
+                )
+                db.add(new_data)
+                recorded_count += 1
+            except Exception as e:
+                print(f"Error recording individual reading: {e}")
+                continue
+        
+        # Update device battery level from the latest reading
+        if payload.readings and payload.readings[-1].battery_level is not None:
+            device = db.query(db_models.Device).filter(
+                db_models.Device.id == bookmark.device_id
+            ).first()
+            if device:
+                device.battery_level = payload.readings[-1].battery_level
+                device.last_seen = datetime.utcnow()
+        
+        db.commit()
+        
+        return JSONResponse(
+            content=api_resp(
+                success=True,
+                message=f"Successfully recorded {recorded_count} BLE readings",
+                data={
+                    "recorded_count": recorded_count,
+                    "total_readings": len(payload.readings),
+                    "device_id": bookmark.device_id
+                }
+            ).dict(),
+            status_code=status.HTTP_201_CREATED,
+        )
+    except Exception as e:
+        db.rollback()
+        print(f"BLE batch recording error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message=f"Failed to record BLE batch: {str(e)}",
                 error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
