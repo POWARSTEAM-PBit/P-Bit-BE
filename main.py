@@ -23,7 +23,7 @@ frontend_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins for development; restrict in production
-    allow_credentials=False,  # Must be False when using wildcard origins
+    allow_credentials=True,  # Allow credentials for authentication
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[
         "Accept",
