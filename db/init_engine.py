@@ -2,27 +2,44 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import QueuePool
 from constants import DB_HOSTNAME, DB_PASSWORD, DB_PORT, DB_USER, DB_DATABASE
+import os
 
-# Amazon database connection
-# Extract hostname from DB_HOSTNAME (remove protocol and port if present)
-hostname = DB_HOSTNAME.replace('http://', '').replace('https://', '').split(':')[0]
-URL_DATABASE = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{hostname}:{DB_PORT}/{DB_DATABASE}'
+# Use SQLite for local development if no database credentials are provided
+if not DB_HOSTNAME or not DB_USER or not DB_PASSWORD:
+    # Local SQLite database for development
+    URL_DATABASE = 'sqlite:///./pbit_local.db'
+else:
+    # Amazon database connection
+    # Extract hostname from DB_HOSTNAME (remove protocol and port if present)
+    hostname = DB_HOSTNAME.replace('http://', '').replace('https://', '').split(':')[0]
+    URL_DATABASE = f'mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{hostname}:{DB_PORT}/{DB_DATABASE}'
 
-engine = create_engine(
-    URL_DATABASE,
-    poolclass=QueuePool,
-    pool_size=5,               # Number of persistent connections
-    max_overflow=10,           # Max connections beyond pool_size
-    pool_timeout=30,           # Seconds to wait for a connection
-    pool_recycle=3600,         # Recycle connections after 1 hour
-    pool_pre_ping=True,        # Test connections before use
-    connect_args={
-        'connect_timeout': 10  # Connection timeout in seconds
-    },
-    echo=False,                # Set True to log SQL queries
-    future=True,               # SQLAlchemy 2.0 compatibility
-    isolation_level="REPEATABLE READ"  # MySQL default isolation level
-)
+# Configure engine based on database type
+if URL_DATABASE.startswith('sqlite'):
+    # SQLite configuration
+    engine = create_engine(
+        URL_DATABASE,
+        echo=False,                # Set True to log SQL queries
+        future=True,               # SQLAlchemy 2.0 compatibility
+        connect_args={'check_same_thread': False}  # SQLite specific
+    )
+else:
+    # MySQL configuration
+    engine = create_engine(
+        URL_DATABASE,
+        poolclass=QueuePool,
+        pool_size=5,               # Number of persistent connections
+        max_overflow=10,           # Max connections beyond pool_size
+        pool_timeout=30,           # Seconds to wait for a connection
+        pool_recycle=3600,         # Recycle connections after 1 hour
+        pool_pre_ping=True,        # Test connections before use
+        connect_args={
+            'connect_timeout': 10  # Connection timeout in seconds
+        },
+        echo=False,                # Set True to log SQL queries
+        future=True,               # SQLAlchemy 2.0 compatibility
+        isolation_level="REPEATABLE READ"  # MySQL default isolation level
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

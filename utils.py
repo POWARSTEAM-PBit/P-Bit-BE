@@ -300,7 +300,7 @@ def validate_assignment_type(assignment_type: str) -> tuple[bool, str]:
     Validate device assignment type.
     Returns (is_valid, error_message)
     """
-    valid_types = ['unassigned', 'student', 'group']
+    valid_types = ['unassigned', 'student', 'group', 'public']
     
     if not assignment_type:
         return False, "Assignment type is required"

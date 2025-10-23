@@ -147,7 +147,7 @@ async def read_profile(current_user: db_models.User = Depends(get_current_user))
         "first_name": current_user.first_name,
         "last_name": current_user.last_name,
         "user_type": current_user.user_type.value,
-        "school": current_user.school,
+        "school": getattr(current_user, 'school', None),
     }
 
 @router.get("/schools", tags=["user"], status_code=status.HTTP_200_OK)

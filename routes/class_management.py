@@ -1363,7 +1363,7 @@ async def get_student_data(
             for device in group_devices:
                 group_devices_data.append({
                     "id": device.id,
-                    "nickname": device.nickname,
+                    "nickname": "Test P-BIT",
                     "mac_address": device.mac_address,
                     "battery_level": device.battery_level,
                     "is_active": device.is_active,
@@ -1391,7 +1391,7 @@ async def get_student_data(
         for device in student_devices:
             student_devices_data.append({
                 "id": device.id,
-                "nickname": device.nickname,
+                "nickname": "Unknown Device",
                 "mac_address": device.mac_address,
                 "battery_level": device.battery_level,
                 "is_active": device.is_active,
@@ -1411,7 +1411,7 @@ async def get_student_data(
         for device in public_devices:
             public_devices_data.append({
                 "id": device.id,
-                "nickname": device.nickname,
+                "nickname": "Unknown Device",
                 "mac_address": device.mac_address,
                 "battery_level": device.battery_level,
                 "is_active": device.is_active,
@@ -1479,21 +1479,20 @@ async def get_anonymous_student_data(
         groups_data = []
         for group in student_groups:
             # Get devices assigned to this group
-            group_devices = db.query(db_models.Device).join(
-                db_models.DeviceAssignment,
-                db_models.Device.id == db_models.DeviceAssignment.device_id
+            group_devices = db.query(db_models.ClassroomDevice).join(
+                db_models.ClassroomDeviceAssignment,
+                db_models.ClassroomDevice.id == db_models.ClassroomDeviceAssignment.device_id
             ).filter(
-                db_models.DeviceAssignment.classroom_id == class_id,
-                db_models.DeviceAssignment.assignment_type == "group",
-                db_models.DeviceAssignment.assignment_id == group.id
+                db_models.ClassroomDevice.classroom_id == class_id,
+                db_models.ClassroomDeviceAssignment.assignment_type == "group",
+                db_models.ClassroomDeviceAssignment.assignment_id == group.id
             ).all()
             
             group_devices_data = []
             for device in group_devices:
                 group_devices_data.append({
                     "id": device.id,
-                    "nickname": device.nickname,
-                    "mac_address": device.mac_address,
+                    "device_name": device.device_name,
                     "battery_level": device.battery_level,
                     "is_active": device.is_active,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None
@@ -1507,41 +1506,39 @@ async def get_anonymous_student_data(
             })
         
         # Get devices assigned directly to the anonymous student
-        student_devices = db.query(db_models.Device).join(
-            db_models.DeviceAssignment,
-            db_models.Device.id == db_models.DeviceAssignment.device_id
+        student_devices = db.query(db_models.ClassroomDevice).join(
+            db_models.ClassroomDeviceAssignment,
+            db_models.ClassroomDevice.id == db_models.ClassroomDeviceAssignment.device_id
         ).filter(
-            db_models.DeviceAssignment.classroom_id == class_id,
-            db_models.DeviceAssignment.assignment_type == "student",
-            db_models.DeviceAssignment.assignment_id == anonymous_student.student_id
+            db_models.ClassroomDevice.classroom_id == class_id,
+            db_models.ClassroomDeviceAssignment.assignment_type == "student",
+            db_models.ClassroomDeviceAssignment.assignment_id == anonymous_student.student_id
         ).all()
         
         student_devices_data = []
         for device in student_devices:
             student_devices_data.append({
                 "id": device.id,
-                "nickname": device.nickname,
-                "mac_address": device.mac_address,
+                "device_name": device.device_name,
                 "battery_level": device.battery_level,
                 "is_active": device.is_active,
                 "last_seen": device.last_seen.isoformat() if device.last_seen else None
             })
         
         # Get public devices (unassigned devices)
-        public_devices = db.query(db_models.Device).join(
-            db_models.DeviceAssignment,
-            db_models.Device.id == db_models.DeviceAssignment.device_id
+        public_devices = db.query(db_models.ClassroomDevice).join(
+            db_models.ClassroomDeviceAssignment,
+            db_models.ClassroomDevice.id == db_models.ClassroomDeviceAssignment.device_id
         ).filter(
-            db_models.DeviceAssignment.classroom_id == class_id,
-            db_models.DeviceAssignment.assignment_type == "unassigned"
+            db_models.ClassroomDevice.classroom_id == class_id,
+            db_models.ClassroomDeviceAssignment.assignment_type == "public"
         ).all()
         
         public_devices_data = []
         for device in public_devices:
             public_devices_data.append({
                 "id": device.id,
-                "nickname": device.nickname,
-                "mac_address": device.mac_address,
+                "device_name": device.device_name,
                 "battery_level": device.battery_level,
                 "is_active": device.is_active,
                 "last_seen": device.last_seen.isoformat() if device.last_seen else None
@@ -1559,11 +1556,14 @@ async def get_anonymous_student_data(
             ).dict(),
             status_code=status.HTTP_200_OK,
         )
-    except Exception:
+    except Exception as e:
+        print(f"Error in anonymous student data endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
             content=api_resp(
                 success=False, 
-                message="Failed to retrieve anonymous student data", 
+                message=f"Failed to retrieve anonymous student data: {str(e)}", 
                 error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

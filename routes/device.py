@@ -28,7 +28,7 @@ class DeviceAssign(BaseModel):
     assignment_id: Optional[str] = Field(None)
 
 class BLEDeviceRegister(BaseModel):
-    nickname: str = Field(..., min_length=2, max_length=20)
+    nickname: str = Field(..., min_length=2, max_length=50)
     mac_address: Optional[str] = Field("", max_length=17)
     is_active: bool = Field(True)
     battery_level: Optional[float] = Field(None, ge=0, le=100)
@@ -38,7 +38,9 @@ class BLEDeviceRegister(BaseModel):
 class BLEDataReading(BaseModel):
     timestamp: datetime
     temperature: Optional[float] = Field(None, ge=-50, le=100)
+    thermometer: Optional[float] = Field(None, ge=-50, le=100)
     humidity: Optional[float] = Field(None, ge=0, le=100)
+    moisture: Optional[float] = Field(None, ge=0, le=100)
     light: Optional[float] = Field(None, ge=0, le=100000)
     sound: Optional[float] = Field(None, ge=0, le=200)
     battery_level: Optional[float] = Field(None, ge=0, le=100)
@@ -225,21 +227,7 @@ async def register_ble_device(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     
-    # Check if nickname already exists for this user
-    existing_nickname = db.query(db_models.DeviceBookmark).filter(
-        db_models.DeviceBookmark.user_id == current_user.user_id,
-        db_models.DeviceBookmark.nickname == payload.nickname
-    ).first()
-    
-    if existing_nickname:
-        return JSONResponse(
-            content=api_resp(
-                success=False,
-                message="Nickname already exists for this user",
-                error_type="duplicate_nickname"
-            ).dict(),
-            status_code=status.HTTP_409_CONFLICT,
-        )
+    # Allow duplicate nicknames for BLE devices - they can be in multiple classrooms
     
     try:
         # Create BLE device
@@ -297,90 +285,6 @@ async def register_ble_device(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
 
-# Record BLE batch data
-@router.post("/record-ble-batch", tags=["device"], status_code=status.HTTP_201_CREATED)
-async def record_ble_batch(
-    request: Request,
-    payload: BLEBatchRecord,
-    current_user: db_models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    try:
-        # Get the user's BLE device (the one they're currently connected to)
-        # We'll use the device name from the request headers to identify which device
-        device_name = request.headers.get('X-Device-Name', 'P-BIT')
-        
-        # Find the user's device bookmark with this name
-        bookmark = db.query(db_models.DeviceBookmark).filter(
-            db_models.DeviceBookmark.user_id == current_user.user_id,
-            db_models.DeviceBookmark.nickname == device_name
-        ).first()
-        
-        if not bookmark:
-            return JSONResponse(
-                content=api_resp(
-                    success=False,
-                    message="BLE device not found for current user",
-                    error_type="device_not_found"
-                ).dict(),
-                status_code=status.HTTP_404_NOT_FOUND,
-            )
-        
-        # Record each reading
-        recorded_count = 0
-        for reading in payload.readings:
-            try:
-                new_data = db_models.DeviceData(
-                    id=str(uuid.uuid4()),
-                    device_id=bookmark.device_id,
-                    timestamp=reading.timestamp,
-                    temperature=reading.temperature,
-                    humidity=reading.humidity,
-                    light=reading.light,
-                    sound=reading.sound
-                )
-                db.add(new_data)
-                recorded_count += 1
-            except Exception as e:
-                print(f"Error recording individual reading: {e}")
-                continue
-        
-        # Update device battery level from the latest reading
-        if payload.readings and payload.readings[-1].battery_level is not None:
-            device = db.query(db_models.Device).filter(
-                db_models.Device.id == bookmark.device_id
-            ).first()
-            if device:
-                device.battery_level = payload.readings[-1].battery_level
-                device.last_seen = datetime.utcnow()
-        
-        db.commit()
-        
-        return JSONResponse(
-            content=api_resp(
-                success=True,
-                message=f"Successfully recorded {recorded_count} BLE readings",
-                data={
-                    "recorded_count": recorded_count,
-                    "total_readings": len(payload.readings),
-                    "device_id": bookmark.device_id
-                }
-            ).dict(),
-            status_code=status.HTTP_201_CREATED,
-        )
-    except Exception as e:
-        db.rollback()
-        print(f"BLE batch recording error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            content=api_resp(
-                success=False,
-                message=f"Failed to record BLE batch: {str(e)}",
-                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            ).dict(),
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        )
 
 # Get user's bookmarked devices
 @router.get("/user-devices", tags=["device"], status_code=status.HTTP_200_OK)
@@ -660,17 +564,17 @@ async def unassign_device(
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    # Check if device exists and belongs to user
-    device = db.query(db_models.Device).filter(
-        db_models.Device.id == device_id,
-        db_models.Device.user_id == current_user.user_id
+    # Check if device exists and user has a bookmark for it
+    device_bookmark = db.query(db_models.DeviceBookmark).filter(
+        db_models.DeviceBookmark.device_id == device_id,
+        db_models.DeviceBookmark.user_id == current_user.user_id
     ).first()
     
-    if not device:
+    if not device_bookmark:
         return JSONResponse(
             content=api_resp(
                 success=False,
-                message="Device not found",
+                message="Device not found or not accessible",
                 error_type="device_not_found"
             ).dict(),
             status_code=status.HTTP_404_NOT_FOUND,
@@ -718,7 +622,6 @@ async def unassign_device(
 @router.put("/{device_id}/assignment", tags=["device"], status_code=status.HTTP_200_OK)
 async def update_device_assignment(
     device_id: str,
-    classroom_id: str,
     payload: DeviceAssign,
     current_user: db_models.User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -735,17 +638,17 @@ async def update_device_assignment(
             status_code=status.HTTP_400_BAD_REQUEST,
         )
     
-    # Check if device exists and belongs to user
-    device = db.query(db_models.Device).filter(
-        db_models.Device.id == device_id,
-        db_models.Device.user_id == current_user.user_id
+    # Check if device exists and belongs to user through DeviceBookmark
+    bookmark = db.query(db_models.DeviceBookmark).filter(
+        db_models.DeviceBookmark.device_id == device_id,
+        db_models.DeviceBookmark.user_id == current_user.user_id
     ).first()
     
-    if not device:
+    if not bookmark:
         return JSONResponse(
             content=api_resp(
                 success=False,
-                message="Device not found",
+                message="Device not found or access denied",
                 error_type="device_not_found"
             ).dict(),
             status_code=status.HTTP_404_NOT_FOUND,
@@ -753,7 +656,7 @@ async def update_device_assignment(
     
     # Check if classroom exists and user owns it
     classroom = db.query(db_models.Class).filter(
-        db_models.Class.id == classroom_id
+        db_models.Class.id == payload.classroom_id
     ).first()
     
     if not classroom:
@@ -779,7 +682,7 @@ async def update_device_assignment(
     # Find the existing assignment
     assignment = db.query(db_models.DeviceAssignment).filter(
         db_models.DeviceAssignment.device_id == device_id,
-        db_models.DeviceAssignment.classroom_id == classroom_id
+        db_models.DeviceAssignment.classroom_id == payload.classroom_id
     ).first()
     
     if not assignment:
@@ -804,7 +707,7 @@ async def update_device_assignment(
                 message="Device assignment updated successfully",
                 data={
                     "device_id": device_id,
-                    "classroom_id": classroom_id,
+                    "classroom_id": payload.classroom_id,
                     "assignment_type": payload.assignment_type,
                     "assignment_id": payload.assignment_id
                 }
@@ -1652,6 +1555,113 @@ async def get_latest_device_data(
             content=api_resp(
                 success=False,
                 message="Failed to retrieve latest device data",
+                error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            ).dict(),
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+# Register BLE device for anonymous students
+@router.post("/register-ble-anonymous", tags=["device"], status_code=status.HTTP_201_CREATED)
+async def register_ble_device_anonymous(
+    payload: BLEDeviceRegister,
+    class_id: str = Query(..., description="Classroom ID"),
+    first_name: str = Query(..., description="Student first name"),
+    pin_code: str = Query(..., description="Student PIN code"),
+    db: Session = Depends(get_db)
+):
+    """
+    Register a BLE device for anonymous students.
+    """
+    try:
+        # Verify anonymous student exists and has access to the classroom
+        anonymous_student = db.query(db_models.AnonymousStudent).filter(
+            db_models.AnonymousStudent.class_id == class_id,
+            db_models.AnonymousStudent.first_name == first_name,
+            db_models.AnonymousStudent.pin_code == pin_code
+        ).first()
+        
+        if not anonymous_student:
+            return JSONResponse(
+                content=api_resp(
+                    success=False,
+                    message="Anonymous student not found or invalid credentials",
+                    error_type="authentication_error"
+                ).dict(),
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
+        
+        # Validate nickname
+        is_valid_nickname, nickname_error = validate_nickname(payload.nickname)
+        if not is_valid_nickname:
+            return JSONResponse(
+                content=api_resp(
+                    success=False,
+                    message=nickname_error,
+                    error_type="validation_error"
+                ).dict(),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+        
+        # Create new device with UUID
+        new_device = db_models.Device(
+            id=str(uuid.uuid4()),
+            mac_address=payload.mac_address,
+            is_active=True,
+            battery_level=payload.battery_level,
+            device_type=payload.device_type,
+            description=payload.description
+        )
+        db.add(new_device)
+        db.flush()  # Get the device ID
+        
+        # Create device bookmark for the anonymous student
+        new_bookmark = db_models.DeviceBookmark(
+            id=str(uuid.uuid4()),
+            device_id=new_device.id,
+            user_id=anonymous_student.student_id,  # Use anonymous student ID
+            nickname=payload.nickname
+        )
+        db.add(new_bookmark)
+        
+        # Assign device to the classroom
+        new_assignment = db_models.DeviceAssignment(
+            id=str(uuid.uuid4()),
+            device_id=new_device.id,
+            classroom_id=class_id,
+            assignment_type='public',  # Anonymous students add devices as public
+            assignment_id=None
+        )
+        db.add(new_assignment)
+        
+        db.commit()
+        
+        return JSONResponse(
+            content=api_resp(
+                success=True,
+                message="BLE device registered successfully for anonymous student",
+                data={
+                    "device_id": new_device.id,
+                    "mac_address": new_device.mac_address,
+                    "nickname": new_bookmark.nickname,
+                    "is_active": new_device.is_active,
+                    "battery_level": new_device.battery_level,
+                    "device_type": new_device.device_type,
+                    "description": new_device.description,
+                    "last_seen": new_device.last_seen.isoformat() if new_device.last_seen else None,
+                    "created_at": new_device.created_at.isoformat() if new_device.created_at else None
+                }
+            ).dict(),
+            status_code=status.HTTP_201_CREATED,
+        )
+    except Exception as e:
+        db.rollback()
+        print(f"Anonymous BLE device registration error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            content=api_resp(
+                success=False,
+                message="Failed to register BLE device",
                 error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

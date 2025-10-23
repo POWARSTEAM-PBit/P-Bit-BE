@@ -2,6 +2,7 @@ from fastapi import FastAPI
 import routes.user as user
 import routes.class_management as class_management
 import routes.device as device
+import routes.classroom_device as classroom_device
 import routes.group as group
 import routes.data as data
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,29 +22,8 @@ frontend_origins = [
 
 app.add_middleware(
     CORSMiddleware,
-<<<<<<< HEAD
-    # allow_origins=[
-    #     "http://13.239.216.36:80",
-    #     "http://127.0.0.1:3000",
-    #     "http://localhost:8000",
-    #     "http"
-    #     "http://localhost:8080",
-    #     "http://127.0.0.1:8080",
-    #     "http://localhost:4200",
-    #     "http://127.0.0.1:4200",
-    #     "http://localhost:4000",
-    #     "http://127.0.0.1:4000",
-    #     "http://localhost:5173",
-    #     "http://127.0.0.1:5173",
-    #     "http://localhost:5174",
-    #     "http://127.0.0.1:5174",
-    # ],
     allow_origins=["*"],  # Allow all origins for development; restrict in production
     allow_credentials=False,  # Must be False when using wildcard origins
-=======
-    allow_origins=["*"],
-    allow_credentials=True,
->>>>>>> 9baea566dfb8241c4131331d8ceb9151a8857f66
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[
         "Accept",
@@ -52,6 +32,8 @@ app.add_middleware(
         "Content-Type",
         "Authorization",
         "X-Requested-With",
+        "X-Device-Name",
+        "X-Classroom-ID",
         "Origin",
         "Access-Control-Request-Method",
         "Access-Control-Request-Headers",
@@ -64,6 +46,7 @@ app.add_middleware(
 app.include_router(user.router)
 app.include_router(class_management.router)
 app.include_router(device.router)
+app.include_router(classroom_device.router)
 app.include_router(group.router)
 app.include_router(data.router)
 
