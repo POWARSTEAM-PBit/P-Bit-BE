@@ -1,4 +1,5 @@
 name: P-Bit BE Build Deployment Workflow
+
 on:
   push:
     branches:
@@ -6,18 +7,18 @@ on:
   pull_request:
     branches:
       - 'main'
+
 jobs:
-   build-image:
+  build-image:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
-    needs: generate-certs
-    
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Log in to Docker Hub
-        run: echo "dckr_pat_zCbQbfMN3WfwpQWRvkSPceTHC4Q" | docker login -u "powarsteam" --password-stdin
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "powarsteam" --password-stdin
 
       - name: Build Docker Image
         run: docker build -t powarsteam/pbit-be:latest .
@@ -25,31 +26,34 @@ jobs:
       - name: Push Docker Image to Docker Hub
         run: docker push powarsteam/pbit-be:latest
 
-    deploy-to-dev:
-      name: Deploy to Development Environment
-      runs-on: ubuntu-latest
-      needs: build-image
+  deploy-to-dev:
+    name: Deploy to Development Environment
+    runs-on: ubuntu-latest
+    needs: build-image  # depends on the previous job finishing successfully
 
-      steps:
-        - name: SSH into EC2 and deploy Docker container
-          uses: appleboy/ssh-action@v0.1.10
-          with:
-            host: 172.233.114.136
-            username: powarsteam
-            key: ${{ secrets.SSH_KEY }}
-            port: 5823
-            script: |
-              # Stop and remove any old containers if they exist
-              docker stop pbit-be || true
-              docker rm pbit-be || true
+    steps:
+      - name: SSH into Linode and deploy Docker container
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: 172.233.114.136
+          username: powarsteam
+          key: ${{ secrets.SSH_KEY }}
+          port: 5823
+          script: |
+            echo "Deploying P-Bit backend..."
 
-              docker image prune -f || true
+            # Stop and remove any old containers if they exist
+            docker stop pbit-be || true
+            docker rm pbit-be || true
 
-              # Pull the latest image from Docker Hub
-              docker pull powarsteam/pbit-be:latest
+            # Clean up unused images
+            docker image prune -f || true
 
-              # Run the container in detached mode
-              docker run -d \
+            # Pull the latest image from Docker Hub
+            docker pull powarsteam/pbit-be:latest
+
+            # Run the new container
+            docker run -d \
               --name pbit-be \
               --restart always \
               -p 8000:8000 \
@@ -63,4 +67,4 @@ jobs:
               -e ACCESS_TOKEN_EXPIRE_MINUTES="30" \
               powarsteam/pbit-be:latest
 
-              echo "Deployment completed successfully!"
+            echo "✅ Deployment completed successfully!"
