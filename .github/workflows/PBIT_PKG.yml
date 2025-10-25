@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Log in to Docker Hub
-        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "powarsteam" --password-stdin
+        run: echo "dckr_pat_zCbQbfMN3WfwpQWRvkSPceTHC4Q" | docker login -u "powarsteam" --password-stdin
 
       - name: Build Docker Image
         run: docker build -t powarsteam/pbit-be:latest .
