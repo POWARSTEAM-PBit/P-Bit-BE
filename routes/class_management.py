@@ -1375,7 +1375,7 @@ async def get_student_data(
                 group_devices_data.append({
                     "id": device.id,
                     "device_name": device.device_name,
-                    "mac_address": device.mac_address,
+                    "device_type": device.device_type,
                     "battery_level": device.battery_level,
                     "is_active": device.is_active,
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None
@@ -1403,7 +1403,7 @@ async def get_student_data(
             student_devices_data.append({
                 "id": device.id,
                 "device_name": device.device_name,
-                "mac_address": device.mac_address,
+                "device_type": device.device_type,
                 "battery_level": device.battery_level,
                 "is_active": device.is_active,
                 "last_seen": device.last_seen.isoformat() if device.last_seen else None
@@ -1423,7 +1423,7 @@ async def get_student_data(
             public_devices_data.append({
                 "id": device.id,
                 "device_name": device.device_name,
-                "mac_address": device.mac_address,
+                "device_type": device.device_type,
                 "battery_level": device.battery_level,
                 "is_active": device.is_active,
                 "last_seen": device.last_seen.isoformat() if device.last_seen else None
