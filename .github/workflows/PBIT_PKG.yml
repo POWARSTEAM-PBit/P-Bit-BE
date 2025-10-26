@@ -1,4 +1,5 @@
 name: P-Bit BE Build Deployment Workflow
+
 on:
   push:
     branches:
@@ -6,49 +7,64 @@ on:
   pull_request:
     branches:
       - 'main'
+
 jobs:
-  build:
+  build-image:
+    name: Build and Push Docker Image
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
-      
-      - name: Configure CA certificate for Docker registry
-        run: |
-          sudo mkdir -p /etc/docker/certs.d/13.239.216.36
-          echo "${{ secrets.REGISTRY_CA_CERT }}" | base64 -d | sudo tee /etc/docker/certs.d/13.239.216.36/ca.crt
-          sudo update-ca-certificates
-      
-      - name: Build and Push Image
-        run: |
-          docker build -t 13.239.216.36/pbit-backend:latest .
-          docker push 13.239.216.36/pbit-backend:latest
 
-      - name: SSH into EC2 and Run Docker Commands
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Log in to Docker Hub
+        run: echo "dckr_pat_zCbQbfMN3WfwpQWRvkSPceTHC4Q" | docker login -u "powarsteam" --password-stdin
+
+      - name: Build Docker Image
+        run: docker build -t powarsteam/pbit-be:latest .
+
+      - name: Push Docker Image to Docker Hub
+        run: docker push powarsteam/pbit-be:latest
+
+  deploy-to-dev:
+    name: Deploy to Development Environment
+    runs-on: ubuntu-latest
+    needs: build-image  # depends on the previous job finishing successfully
+
+    steps:
+      - name: SSH into Linode and deploy Docker container
+        uses: appleboy/ssh-action@v0.1.10
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USERNAME }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
+          host: 172.233.114.136
+          username: powarsteam
+          key: ${{ secrets.SSH_KEY }}
+          port: 5823
           script: |
-            docker stop pbit-backend || true
-            docker rm pbit-backend || true
-            docker rmi pbit-backend:latest
-            
-            docker pull localhost/pbit-backend:latest
+            echo "Deploying P-Bit backend..."
 
-            # Run the new container with the same configuration as before
+            # Stop and remove any old containers if they exist
+            docker stop pbit-be || true
+            docker rm pbit-be || true
+
+            # Clean up unused images
+            docker image prune -f || true
+
+            # Pull the latest image from Docker Hub
+            docker pull powarsteam/pbit-be:latest
+
+            # Run the new container
             docker run -d \
-              --name pbit-backend \
-              -p 8000:8000 \
+              --name pbit-be \
               --restart always \
-              -e DB_HOSTNAME="${{ secrets.DB_HOSTNAME }}" \
-              -e DB_PORT="${{ secrets.DB_PORT }}" \
-              -e DB_USER="${{ secrets.DB_USER }}" \
-              -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-              -e DB_DATABASE="${{ secrets.DB_DATABASE }}" \
-              -e SECRET_KEY="${{ secrets.SECRET_KEY }}" \
-              -e ALGORITHM="${{ secrets.ALGORITHM }}" \
-              -e ACCESS_TOKEN_EXPIRE_MINUTES="${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}" \
-              localhost/pbit-backend:latest
+              -p 8000:8000 \
+              -e DB_HOSTNAME="a375161-akamai-prod-6782576-default.g2a.akamaidb.net" \
+              -e DB_USER="akmadmin" \
+              -e DB_PASSWORD="AVNS_aVitjiCj-ec-Wl2fDHL" \
+              -e DB_PORT="19980" \
+              -e DB_DATABASE="defaultdb" \
+              -e JWT_SECRET_KEY="650FX$IyZT/XWn>£2/nL£PR?=%N" \
+              -e JWT_ALGORITHM="HS256" \
+              -e ACCESS_TOKEN_EXPIRE_MINUTES="30" \
+              powarsteam/pbit-be:latest
+
+            echo "✅ Deployment completed successfully!"

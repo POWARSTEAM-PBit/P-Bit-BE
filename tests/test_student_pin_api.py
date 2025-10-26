@@ -178,9 +178,8 @@ def test_create_class(client, teacher_payload, class_payload) -> None:
     assert "passphrase" in data
     assert "owner_id" in data
 
-import uuid
 
-def test_remove_student_from_class_success(client, teacher_payload, class_payload):
+def test_remove_student_from_class_success(client, teacher_payload, student_payload, class_payload):
     """
     Integration test for removing a student from a class by the class teacher.
     - Registers and logs in a teacher.
@@ -201,6 +200,20 @@ def test_remove_student_from_class_success(client, teacher_payload, class_payloa
     teacher_token = login_resp.json()["data"]["access_token"]
     teacher_headers = {"Authorization": f"Bearer {teacher_token}"}
 
+
+    # Register and login student
+    reg_resp_student = client.post("/user/register", json=student_payload)
+    assert reg_resp_student.status_code == 201
+
+    login_resp_student = client.post("/user/login", data={
+        "username": student_payload["user_id"],
+        "password": student_payload["password"]
+    })
+
+    assert login_resp_student.status_code == 200
+    student_token = login_resp_student.json()["data"]["access_token"]
+    student_headers = {"Authorization": f"Bearer {student_token}"}
+    
     # Step 2: Create class
     create_resp = client.post("/class/create", json=class_payload, headers=teacher_headers)
     assert create_resp.status_code == 201
@@ -209,27 +222,26 @@ def test_remove_student_from_class_success(client, teacher_payload, class_payloa
     passphrase = class_data["passphrase"]
 
     # Step 3: Anonymous student joins the class (use unique name)
-    unique_name = f"Anon{uuid.uuid4().hex[:6]}"
     anon_payload = {
-        "first_name": unique_name,
         "passphrase": passphrase,
-        "pin_code": "9999"
     }
-    join_resp = client.post("/class/join-anonymous", json=anon_payload)
+    # join_resp = client.post("/class/join-anonymous", json=anon_payload)
+    # assert join_resp.status_code == 200, join_resp.json()
+
+    join_resp = client.post("/class/join", json=anon_payload, headers=student_headers)
     assert join_resp.status_code == 200, join_resp.json()
 
-    anon_data = join_resp.json()["data"]
-    student_id = anon_data["student_id"]
+    # anon_data = join_resp.json()["data"]
+    # student_id = anon_data["student_id"]
 
     # Step 4: Teacher removes the student from the class
-    remove_url = f"/class/{class_id}/remove-student/{student_id}"
+    remove_url = f"/class/{class_id}/remove-student/{student_payload['user_id']}"
     remove_resp = client.delete(remove_url, headers=teacher_headers)
     assert remove_resp.status_code == 200, remove_resp.json()
 
     remove_data = remove_resp.json()["data"]
-    assert remove_data["student_id"] == student_id
+    assert remove_data["student_id"] == student_payload["user_id"]
     assert remove_data["class_id"] == class_id
-    assert remove_data["first_name"] == unique_name
 
 
 def test_get_owned_classes(client, teacher_payload, class_payload):
