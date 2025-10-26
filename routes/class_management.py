@@ -143,10 +143,21 @@ async def join_class(
         return JSONResponse(
             content=api_resp(
                 success=False, 
-                message="Invalid passphrase", 
+                message="Invalid classroom code", 
                 error=error_resp(code=status.HTTP_404_NOT_FOUND)
             ).dict(),
             status_code=status.HTTP_404_NOT_FOUND,
+        )
+    
+    # Check if user is trying to join their own classroom
+    if class_obj.owner_id == current_user.user_id:
+        return JSONResponse(
+            content=api_resp(
+                success=False, 
+                message="You cannot join your own classroom as a student", 
+                error=error_resp(code=status.HTTP_400_BAD_REQUEST)
+            ).dict(),
+            status_code=status.HTTP_400_BAD_REQUEST,
         )
     
     # Check if user is already a member
@@ -1350,20 +1361,20 @@ async def get_student_data(
         groups_data = []
         for group in student_groups:
             # Get devices assigned to this group
-            group_devices = db.query(db_models.Device).join(
-                db_models.DeviceAssignment,
-                db_models.Device.id == db_models.DeviceAssignment.device_id
+            group_devices = db.query(db_models.ClassroomDevice).join(
+                db_models.ClassroomDeviceAssignment,
+                db_models.ClassroomDevice.id == db_models.ClassroomDeviceAssignment.device_id
             ).filter(
-                db_models.DeviceAssignment.classroom_id == class_id,
-                db_models.DeviceAssignment.assignment_type == "group",
-                db_models.DeviceAssignment.assignment_id == group.id
+                db_models.ClassroomDevice.classroom_id == class_id,
+                db_models.ClassroomDeviceAssignment.assignment_type == "group",
+                db_models.ClassroomDeviceAssignment.assignment_id == group.id
             ).all()
             
             group_devices_data = []
             for device in group_devices:
                 group_devices_data.append({
                     "id": device.id,
-                    "nickname": "Test P-BIT",
+                    "device_name": device.device_name,
                     "mac_address": device.mac_address,
                     "battery_level": device.battery_level,
                     "is_active": device.is_active,
@@ -1378,40 +1389,40 @@ async def get_student_data(
                 })
             
             # Get devices assigned directly to the student
-        student_devices = db.query(db_models.Device).join(
-            db_models.DeviceAssignment,
-            db_models.Device.id == db_models.DeviceAssignment.device_id
+        student_devices = db.query(db_models.ClassroomDevice).join(
+            db_models.ClassroomDeviceAssignment,
+            db_models.ClassroomDevice.id == db_models.ClassroomDeviceAssignment.device_id
         ).filter(
-            db_models.DeviceAssignment.classroom_id == class_id,
-            db_models.DeviceAssignment.assignment_type == "student",
-            db_models.DeviceAssignment.assignment_id == current_user.user_id
+            db_models.ClassroomDevice.classroom_id == class_id,
+            db_models.ClassroomDeviceAssignment.assignment_type == "student",
+            db_models.ClassroomDeviceAssignment.assignment_id == current_user.user_id
         ).all()
         
         student_devices_data = []
         for device in student_devices:
             student_devices_data.append({
                 "id": device.id,
-                "nickname": "Unknown Device",
+                "device_name": device.device_name,
                 "mac_address": device.mac_address,
                 "battery_level": device.battery_level,
                 "is_active": device.is_active,
                 "last_seen": device.last_seen.isoformat() if device.last_seen else None
             })
         
-        # Get public devices (unassigned devices)
-        public_devices = db.query(db_models.Device).join(
-            db_models.DeviceAssignment,
-            db_models.Device.id == db_models.DeviceAssignment.device_id
+        # Get public devices
+        public_devices = db.query(db_models.ClassroomDevice).join(
+            db_models.ClassroomDeviceAssignment,
+            db_models.ClassroomDevice.id == db_models.ClassroomDeviceAssignment.device_id
         ).filter(
-            db_models.DeviceAssignment.classroom_id == class_id,
-            db_models.DeviceAssignment.assignment_type == "unassigned"
+            db_models.ClassroomDevice.classroom_id == class_id,
+            db_models.ClassroomDeviceAssignment.assignment_type == "public"
         ).all()
         
         public_devices_data = []
         for device in public_devices:
             public_devices_data.append({
                 "id": device.id,
-                "nickname": "Unknown Device",
+                "device_name": device.device_name,
                 "mac_address": device.mac_address,
                 "battery_level": device.battery_level,
                 "is_active": device.is_active,
