@@ -1,7 +1,14 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load environment variables - prioritize .env.local for local development
+# If .env.local exists, use it; otherwise fall back to .env
+if os.path.exists('.env.local'):
+    load_dotenv('.env.local')
+    print("🔧 Using local development environment (.env.local)")
+else:
+    load_dotenv()
+    print("🌐 Using production environment (.env)")
 
 # Database configuration - Amazon database
 DB_HOSTNAME: str = os.environ.get('DB_HOSTNAME')
