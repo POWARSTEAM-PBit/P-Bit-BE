@@ -1381,12 +1381,12 @@ async def get_student_data(
                     "last_seen": device.last_seen.isoformat() if device.last_seen else None
                 })
             
-                groups_data.append({
-                    "id": group.id,
-                    "name": group.name,
-                    "icon": group.icon,
-                    "devices": group_devices_data
-                })
+            groups_data.append({
+                "id": group.id,
+                "name": group.name,
+                "icon": group.icon,
+                "devices": group_devices_data
+            })
             
             # Get devices assigned directly to the student
         student_devices = db.query(db_models.ClassroomDevice).join(
@@ -1441,11 +1441,14 @@ async def get_student_data(
             ).dict(),
             status_code=status.HTTP_200_OK,
         )
-    except Exception:
+    except Exception as e:
+        print(f"Error in student data endpoint: {e}")
+        import traceback
+        traceback.print_exc()
         return JSONResponse(
             content=api_resp(
                 success=False, 
-                message="Failed to retrieve student data", 
+                message=f"Failed to retrieve student data: {str(e)}", 
                 error=error_resp(code=status.HTTP_500_INTERNAL_SERVER_ERROR)
             ).dict(),
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
